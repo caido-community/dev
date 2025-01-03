@@ -27,6 +27,7 @@ export const frontendPluginConfigSchema = z.strictObject({
   name: z.string().optional(),
   root: z.string(),
   backend: backendReferenceConfigSchema.nullable().optional(),
+  vite: z.object({}).passthrough().optional(),
 });
 
 export const backendPluginConfigSchema = z.strictObject({
@@ -43,7 +44,7 @@ export const workflowPluginConfigSchema = z.strictObject({
   definition: z.string(),
 });
 
-export const devConfigSchema = z.strictObject({
+export const watchConfigSchema = z.strictObject({
   port: z.number().optional(),
   host: z.string().optional(),
 });
@@ -56,7 +57,7 @@ export const caidoConfigSchema = z.strictObject({
       workflowPluginConfigSchema,
     ])
   ),
-  dev: devConfigSchema.optional(),
+  watch: watchConfigSchema.optional(),
 });
 
 // Type inference
@@ -64,7 +65,7 @@ export type BackendReferenceConfig = z.infer<typeof backendReferenceConfigSchema
 export type FrontendPluginConfig = z.infer<typeof frontendPluginConfigSchema>;
 export type BackendPluginConfig = z.infer<typeof backendPluginConfigSchema>;
 export type WorkflowPluginConfig = z.infer<typeof workflowPluginConfigSchema>;
-export type DevConfig = z.infer<typeof devConfigSchema>;
+export type WatchConfig = z.infer<typeof watchConfigSchema>;
 export type CaidoConfig = z.infer<typeof caidoConfigSchema>; 
 
 export const RootPackageJsonSchema = z.object({

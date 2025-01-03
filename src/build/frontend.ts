@@ -1,5 +1,5 @@
 import path from 'path';
-import { defineConfig, build } from 'vite';
+import { defineConfig, build, mergeConfig } from 'vite';
 import { existsSync } from 'fs';
 import type { FrontendBuildOutput, FrontendPluginConfig } from '../types';
 import { getPluginPackageJson } from '../package';
@@ -14,7 +14,7 @@ import { logInfo } from '../utils';
 function createViteConfig(cwd: string, plugin: FrontendPluginConfig) {
   // Set the entry point
   const root = path.resolve(cwd, plugin.root);
-  return defineConfig({
+  const baseConfig = defineConfig({
     root,
     build: {
       outDir: 'dist',
@@ -30,6 +30,8 @@ function createViteConfig(cwd: string, plugin: FrontendPluginConfig) {
       }
     }
   })
+
+  return mergeConfig(baseConfig, plugin.vite ?? {});
 } 
 
 /**
