@@ -39,6 +39,7 @@ export const workflowPluginConfigSchema = z.strictObject({
   kind: z.literal('workflow'),
   id: z.string(),
   name: z.string(),
+  root: z.string(),
   definition: z.string(),
 });
 

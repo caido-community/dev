@@ -1,6 +1,6 @@
 {
   "name": "@caido-community/dev",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Development tools for building Caido plugins",
   "type": "module",
   "bin": {
@@ -27,16 +27,21 @@
   "dependencies": {
     "@caido/plugin-manifest": "0.2.1",
     "chalk": "5.4.1",
+    "chokidar": "4.0.3",
     "commander": "13.0.0",
-    "jszip": "3.10.1",
-    "vite": "6.0.6",
+    "express": "5.0.0",
     "jiti": "2.4.2",
+    "jszip": "3.10.1",
+    "tsup": "8.3.5",
+    "vite": "6.0.6",
     "vitest": "2.1.8",
-    "zod": "3.24.1",
-    "tsup": "8.3.5"
+    "ws": "8.18.0",
+    "zod": "3.24.1"
   },
   "devDependencies": {
+    "@types/express": "5.0.0",
     "@types/node": "22.10.2",
+    "@types/ws": "8.5.13",
     "prettier": "3.4.2",
     "tsup": "8.3.5",
     "tsx": "4.19.2",

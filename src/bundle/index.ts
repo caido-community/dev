@@ -5,7 +5,7 @@ import { createManifest } from '../manifest';
 import { RootPackageJson } from '../types';
 import type { BuildOutput } from '../types';
 import JSZip from 'jszip';
-import { addDirectoryToZip, logInfo } from '../utils';
+import { addDirectoryToZip, logInfo, logSuccess } from '../utils';
 import { bundleFrontendPlugin } from './frontend';
 import { bundleBackendPlugin } from "./backend";
 
@@ -80,6 +80,6 @@ export async function bundlePackage(options: {
   zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true })
     .pipe(zipFile.createWriteStream())
     .on('finish', () => {
-      console.log('Plugin package zip file created successfully');
+      logSuccess('Plugin package zip file created successfully');
     });
 } 

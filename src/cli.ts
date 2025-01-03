@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { build } from './commands';
+import { build, watch } from './commands';
 import chalk from 'chalk';
 
 const program = new Command();
@@ -34,9 +34,15 @@ program
   .action(runner((path, args) => build({ path, ...args })));
 
 program
+  .command('watch [path]')
+  .description('Start development server and watch for changes')
+  .option('-c, --config <path>', 'Path to caido.config.ts file')
+  .action(runner((path, args) => watch({ path, ...args })));
+
+program
   .command('dev')
   .description('Start development server')
-    .option('-c, --config <path>', 'Path to caido.config.ts file')
+  .option('-c, --config <path>', 'Path to caido.config.ts file')
   .action(() => {});
 
 try {
