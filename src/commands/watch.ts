@@ -6,7 +6,7 @@ import { build } from './build';
 import path from 'path';
 import fs from 'fs/promises';
 import { loadConfig } from '../config';
-import { logInfo } from '../utils';
+import { logError, logInfo } from '../utils';
 
 export async function watch(options: {
     path?: string;
@@ -48,7 +48,13 @@ export async function watch(options: {
         await build(options);
         notifyRebuild(true);
     } catch (error) {
-        notifyRebuild(false, error instanceof Error ? error.message : 'Unknown error');
+        if (error instanceof Error) {
+            logError(error.message);
+            notifyRebuild(false, error.message);
+        } else {
+            logError('Unknown error');
+            notifyRebuild(false, 'Unknown error');
+        }
     }
 
     // Watch for changes

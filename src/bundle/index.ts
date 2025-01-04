@@ -2,8 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { validateManifest } from '@caido/plugin-manifest';
 import { createManifest } from '../manifest';
-import { RootPackageJson } from '../types';
-import type { BuildOutput } from '../types';
+import type { BuildOutput, CaidoConfig } from '../types';
 import JSZip from 'jszip';
 import { addDirectoryToZip, logInfo, logSuccess } from '../utils';
 import { bundleFrontendPlugin } from './frontend';
@@ -34,17 +33,17 @@ async function createDistDirectories(cwd: string) {
  */
 export async function bundlePackage(options: {
     cwd: string,
-    packageJson: RootPackageJson,
-    buildOutputs: BuildOutput[]
+    buildOutputs: BuildOutput[],
+    config: CaidoConfig
 }): Promise<void> {
   logInfo('Bundling plugin package');
-  const { cwd, packageJson, buildOutputs } = options;
+  const { cwd, buildOutputs, config } = options;
 
   // Create dist directories
   const { distDir, pluginPackageDir } = await createDistDirectories(cwd);
 
   // Create manifest
-  const manifest = createManifest({ packageJson });
+  const manifest = createManifest({ config });
 
   // Copy build outputs to dist directory
   for (const buildOutput of buildOutputs) {

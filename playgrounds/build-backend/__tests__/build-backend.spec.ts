@@ -11,13 +11,13 @@ describe('build-backend', () => {
 
     expect(manifestJsonContent).toEqual(JSON.stringify({
       "id": "build-backend",
-      "name": "build-backend",
+      "name": "Backend",
       "version": "1.0.0",
-      "description": "",
+      "description": "Backend plugin",
       "author": {
-        "name": "Caido Labs Inc.",
-        "email": "hello@caido.com",
-        "url": "https://caido.com"
+        "name": "John Doe",
+        "email": "john.doe@example.com",
+        "url": "https://example.com"
       },
       "plugins": [
         {

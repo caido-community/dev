@@ -1,6 +1,5 @@
 import { loadConfig } from '../config';
 import { bundlePackage } from '../bundle';
-import { getRootPackageJson } from '../package';
 import { buildFrontendPlugin, buildBackendPlugin } from '../build';
 import type { BuildOutput } from '../types';
 import { logInfo, logSuccess } from '../utils';
@@ -29,11 +28,10 @@ export async function build(options: {
     }
 
     // Bundle the plugin
-    const packageJson = getRootPackageJson(cwd);
     await bundlePackage({ 
         cwd,
-        packageJson,
-        buildOutputs
+        buildOutputs,
+        config
     });
     logSuccess('Plugin package built successfully');
 } 

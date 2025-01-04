@@ -2,7 +2,6 @@ import path from 'path';
 import { defineConfig, build, mergeConfig } from 'vite';
 import { existsSync } from 'fs';
 import type { FrontendBuildOutput, FrontendPluginConfig } from '../types';
-import { getPluginPackageJson } from '../package';
 import { logInfo } from '../utils';
 
 /**
@@ -45,14 +44,12 @@ export async function buildFrontendPlugin(cwd: string, pluginConfig: FrontendPlu
     await build(viteConfig);
 
     const hasCss = existsSync(`${pluginRoot}/dist/index.css`);
-    const packageJson = getPluginPackageJson(pluginRoot);
-
     logInfo(`Frontend plugin built successfully`);
 
     return {
       kind: 'frontend',
-      id: packageJson.name,
-      name: pluginConfig.name ?? packageJson.name,
+      id: pluginConfig.id,
+      name: pluginConfig.name ?? "frontend",
       fileName: path.join(pluginRoot, 'dist', 'index.js'),
       cssFileName: hasCss ? path.join(pluginRoot, 'dist', 'index.css') : undefined,
       backendId: pluginConfig.backend?.id

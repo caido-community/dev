@@ -1,4 +1,3 @@
-import { Options as TsupConfig } from "tsup";
 import { UserConfig as ViteConfig } from "vite";
 import { z } from "zod";
 
@@ -25,10 +24,10 @@ export const backendReferenceConfigSchema = z.strictObject({
 });
 
 const viteSchema: z.ZodType<ViteConfig> = z.record(z.string(), z.unknown());
-const tsupSchema: z.ZodType<TsupConfig> = z.record(z.string(), z.unknown());
 
 export const frontendPluginConfigSchema = z.strictObject({
   kind: z.literal('frontend'),
+  id: z.string(),
   name: z.string().optional(),
   root: z.string(),
   backend: backendReferenceConfigSchema.nullable().optional(),
@@ -37,9 +36,9 @@ export const frontendPluginConfigSchema = z.strictObject({
 
 export const backendPluginConfigSchema = z.strictObject({
   kind: z.literal('backend'),
-  name: z.string().nullable().optional(),
+  id: z.string(),
+  name: z.string().optional(),
   root: z.string(),
-  tsup: tsupSchema.optional(),
 });
 
 export const workflowPluginConfigSchema = z.strictObject({
@@ -56,6 +55,15 @@ export const watchConfigSchema = z.strictObject({
 });
 
 export const caidoConfigSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  author: z.object({
+      name: z.string(),
+      email: z.string().email().optional(),
+      url: z.string().url().optional(),
+  }),
   plugins: z.array(
     z.discriminatedUnion('kind', [
       frontendPluginConfigSchema,
@@ -73,21 +81,3 @@ export type BackendPluginConfig = z.infer<typeof backendPluginConfigSchema>;
 export type WorkflowPluginConfig = z.infer<typeof workflowPluginConfigSchema>;
 export type WatchConfig = z.infer<typeof watchConfigSchema>;
 export type CaidoConfig = z.infer<typeof caidoConfigSchema>; 
-
-export const RootPackageJsonSchema = z.object({
-    name: z.string(),
-    version: z.string(),
-    description: z.string(),
-    author: z.object({
-        name: z.string(),
-        email: z.string().email(),
-        url: z.string().url(),
-    }),
-});
-
-export const PluginPackageJsonSchema = z.object({
-    name: z.string(),
-});
-
-export type RootPackageJson = z.infer<typeof RootPackageJsonSchema>;
-export type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;

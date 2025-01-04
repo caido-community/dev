@@ -1,19 +1,19 @@
 import type { Manifest, ManifestPlugin } from '@caido/plugin-manifest';
-import { RootPackageJson } from './types';
+import { CaidoConfig } from './types';
 
 export function createManifest(options: {
-    packageJson: RootPackageJson
+    config: CaidoConfig
 }): Manifest {
-  const { packageJson } = options;
+  const { config } = options;
   return {
-    id: packageJson.name,
-    name: packageJson.name,
-    version: packageJson.version,
-    description: packageJson.description,
+    id: config.id,
+    name: config.name,
+    version: config.version,
+    description: config.description,
     author: {
-        name: packageJson.author.name,
-        email: packageJson.author?.email,
-        url: packageJson.author?.url,
+        name: config.author.name,
+        email: config.author?.email,
+        url: config.author?.url,
     },
     plugins: []
   };

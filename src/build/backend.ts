@@ -1,7 +1,6 @@
 import path from 'path';
 import { defineConfig, build, Options } from 'tsup';
 import type { BackendPluginConfig, BackendBuildOutput } from '../types';
-import { getPluginPackageJson } from '../package';
 import { logInfo } from '../utils';
 import { builtinModules } from 'module';
 
@@ -14,7 +13,7 @@ import { builtinModules } from 'module';
 function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
 
   const root = path.resolve(cwd, plugin.root);
-  return defineConfig([{
+  return defineConfig({
     target: 'esnext',
     entry: [path.resolve(root, 'src/index.ts')],
     outDir: path.resolve(root, 'dist'),
@@ -28,7 +27,7 @@ function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
     clean: true,
     sourcemap: false,
     external: [/caido:.+/, ...builtinModules],
-  }, plugin.tsup ?? {}]) as Options;
+  }) as Options;
 } 
 
 /**
@@ -43,15 +42,12 @@ export async function buildBackendPlugin(cwd: string, pluginConfig: BackendPlugi
     logInfo(`Building backend plugin: ${pluginRoot}`);
     const tsupConfig = createTsupConfig(cwd, pluginConfig);
     await build(tsupConfig);
-
-    const packageJson = getPluginPackageJson(pluginRoot);
-
-    logInfo(`Frontend backend built successfully`);
+    logInfo(`Backend built successfully`);
 
     return {
       kind: 'backend',
-      id: packageJson.name,
-      name: pluginConfig.name ?? packageJson.name,
+      id: pluginConfig.id,
+      name: pluginConfig.name ?? "backend",
       fileName: path.join(pluginRoot, 'dist', 'index.js'),
     }
 }

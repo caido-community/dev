@@ -17,6 +17,7 @@ function runner(fn: (...args: any[]) => Promise<void>) {
         } catch (error) {
             const buildError = error instanceof Error ? error : new Error('Unknown error occurred');
             console.error(chalk.red(`\n${buildError.message}`));
+            console.error(chalk.red(`${buildError.stack}`));
             process.exit(1);
         }
     }
