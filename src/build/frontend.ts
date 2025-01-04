@@ -25,9 +25,6 @@ function createViteConfig(cwd: string, plugin: FrontendPluginConfig) {
         fileName: () => 'index.js',
         cssFileName: 'index'
       },
-      rollupOptions: {
-        external: ['@caido/frontend-sdk']
-      }
     }
   })
 

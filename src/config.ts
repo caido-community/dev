@@ -21,3 +21,8 @@ export async function loadConfig(cwd: string, configPath?: string): Promise<Caid
     throw new Error('Unknown error occurred');
   }
 }
+
+
+export const defineConfig = (config: CaidoConfig) => {
+  return config;
+};
