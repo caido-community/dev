@@ -30,8 +30,8 @@ export function bundleFrontendPlugin(pluginPackageDir: string, buildOutput: Fron
     id: buildOutput.id,
     kind: 'frontend',
     name: buildOutput.name ?? buildOutput.id,
-    js: jsRelativePath,
-    css: cssRelativePath,
+    entrypoint: jsRelativePath,
+    style: cssRelativePath,
     backend: buildOutput.backendId ? {
       id: buildOutput.backendId,
     } : null
