@@ -14,7 +14,7 @@ import { builtinModules } from 'module';
 function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
 
   const root = path.resolve(cwd, plugin.root);
-  return defineConfig({
+  return defineConfig([{
     target: 'esnext',
     entry: [path.resolve(root, 'src/index.ts')],
     outDir: path.resolve(root, 'dist'),
@@ -28,9 +28,7 @@ function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
     clean: true,
     sourcemap: false,
     external: [/caido:.+/, ...builtinModules],
-
-
-  }) as Options;
+  }, plugin.tsup ?? {}]) as Options;
 } 
 
 /**

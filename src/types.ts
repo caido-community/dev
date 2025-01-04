@@ -1,4 +1,5 @@
-import { UserConfig } from "vite";
+import { Options as TsupConfig } from "tsup";
+import { UserConfig as ViteConfig } from "vite";
 import { z } from "zod";
 
 export type FrontendBuildOutput = {
@@ -23,7 +24,8 @@ export const backendReferenceConfigSchema = z.strictObject({
   id: z.string(),
 });
 
-const viteSchema: z.ZodType<UserConfig> = z.record(z.string(), z.unknown());
+const viteSchema: z.ZodType<ViteConfig> = z.record(z.string(), z.unknown());
+const tsupSchema: z.ZodType<TsupConfig> = z.record(z.string(), z.unknown());
 
 export const frontendPluginConfigSchema = z.strictObject({
   kind: z.literal('frontend'),
@@ -37,6 +39,7 @@ export const backendPluginConfigSchema = z.strictObject({
   kind: z.literal('backend'),
   name: z.string().nullable().optional(),
   root: z.string(),
+  tsup: tsupSchema.optional(),
 });
 
 export const workflowPluginConfigSchema = z.strictObject({
