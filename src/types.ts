@@ -51,7 +51,6 @@ export const workflowPluginConfigSchema = z.strictObject({
 
 export const watchConfigSchema = z.strictObject({
   port: z.number().optional(),
-  host: z.string().optional(),
 });
 
 export const caidoConfigSchema = z.strictObject({
@@ -81,3 +80,19 @@ export type BackendPluginConfig = z.infer<typeof backendPluginConfigSchema>;
 export type WorkflowPluginConfig = z.infer<typeof workflowPluginConfigSchema>;
 export type WatchConfig = z.infer<typeof watchConfigSchema>;
 export type CaidoConfig = z.infer<typeof caidoConfigSchema>; 
+
+
+export type ConnectedMessage = {
+    kind: 'connected';
+    downloadUrl: string;
+}
+
+export type RebuildMessage = {
+    kind: 'rebuild';
+    downloadUrl: string;
+}
+
+export type ErrorMessage = {
+    kind: 'error';
+    error: string;
+}

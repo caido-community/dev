@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { loadConfig } from '../config';
 import { logError, logInfo } from '../utils';
+import { ConnectedMessage, ErrorMessage, RebuildMessage } from '../types';
 
 export async function watch(options: {
     path?: string;
@@ -14,6 +15,12 @@ export async function watch(options: {
 }) {
 
     const { path: cwd = process.cwd(), config: configPath } = options;
+
+    const config = await loadConfig(cwd, configPath);
+    const { port = 3000 } = config.watch ?? {};
+
+    const downloadUrl = `http://localhost:${port}/plugin_package.zip`;
+
     const app = express();
     const server = createServer(app);
     const wss = new WebSocketServer({ server });
@@ -24,12 +31,32 @@ export async function watch(options: {
     wss.on('connection', (ws: WebSocket) => {
         clients.add(ws);
         ws.on('close', () => clients.delete(ws));
+
+        const message: ConnectedMessage = {
+            kind: 'connected',
+            downloadUrl,
+        };
+
+        ws.send(JSON.stringify(message));
     });
 
     // Function to notify all clients of a rebuild
-    const notifyRebuild = (success: boolean, error?: string) => {
-        const message = JSON.stringify({ type: 'rebuild', success, error });
-        clients.forEach(client => client.send(message));
+    const notifyRebuild = () => {
+        const message: RebuildMessage = {
+            kind: 'rebuild',
+            downloadUrl,
+        };
+        clients.forEach(client => client.send(JSON.stringify(message)));
+    };
+
+    // Function to notify all clients of an error
+    const notifyError = (error: string) => {
+        const message: ErrorMessage = {
+            kind: 'error',
+            error,
+        };
+
+        clients.forEach(client => client.send(JSON.stringify(message)));
     };
 
     // Serve the plugin package
@@ -46,19 +73,18 @@ export async function watch(options: {
     // Initial build
     try {
         await build(options);
-        notifyRebuild(true);
+        notifyRebuild();
     } catch (error) {
         if (error instanceof Error) {
             logError(error.message);
-            notifyRebuild(false, error.message);
+            notifyError(error.message);
         } else {
             logError('Unknown error');
-            notifyRebuild(false, 'Unknown error');
+            notifyError('Unknown error');
         }
     }
 
     // Watch for changes
-    const config = await loadConfig(cwd, configPath);
     const watchPatterns = config.plugins.map(plugin => path.join(cwd, plugin.root, '**/*'));
     const watchFiles = await Promise.all(
         watchPatterns.map(async pattern => {
@@ -83,14 +109,13 @@ export async function watch(options: {
         logInfo(`File ${filePath} has been ${event}`);
         try {
             await build(options);
-            notifyRebuild(true);
+            notifyRebuild();
         } catch (error) {
-            notifyRebuild(false, error instanceof Error ? error.message : 'Unknown error');
+            notifyError(error instanceof Error ? error.message : 'Unknown error');
         }
     });
 
     // Start the server
-    const port = 3000;
     server.listen(port, () => {
         logInfo(`Development server running at http://localhost:${port}`);
         logInfo(`WebSocket server running at ws://localhost:${port}`);
