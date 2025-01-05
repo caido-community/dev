@@ -24,8 +24,8 @@ describe('build-frontend', () => {
           "id": "frontend",
           "kind": "frontend",
           "name": "frontend",
-          "js": "frontend/index.js",
-          "css": "frontend/index.css",
+          "entrypoint": "frontend/index.js",
+          "style": "frontend/index.css",
           "backend": null
         }
       ]
