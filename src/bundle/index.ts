@@ -91,13 +91,17 @@ export async function bundlePackage(options: {
   // Write zip file to dist directory
   const zipPath = path.join(distDir, "plugin_package.zip");
   const zipFile = await fs.open(zipPath, "w");
-  zip
-    .generateNodeStream({
-      type: "nodebuffer",
-      streamFiles: true,
-    })
-    .pipe(zipFile.createWriteStream())
-    .on("finish", () => {
-      logSuccess("Plugin package zip file created successfully");
-    });
+  await new Promise<void>((resolve, reject) => {
+    zip
+      .generateNodeStream({
+        type: "nodebuffer",
+        streamFiles: true,
+      })
+      .pipe(zipFile.createWriteStream())
+      .on("finish", () => {
+        logSuccess("Plugin package zip file created successfully");
+        resolve();
+      })
+      .on("error", reject);
+  });
 }
