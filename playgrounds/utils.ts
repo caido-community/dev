@@ -14,13 +14,10 @@ export async function getZipFileContent(
   filePath: string,
 ): Promise<string | undefined> {
   try {
-    // Because the zip library loads the path as platform specific
-    const filePathPlatform = filePath.replace(/\//g, path.sep);
-
     const zipBuffer = await fs.readFile(zipPath);
     const zip = new JSZip();
     const loadedZip = await zip.loadAsync(zipBuffer);
-    const file = loadedZip.file(filePathPlatform);
+    const file = loadedZip.file(filePath);
 
     if (!file) {
       return undefined;

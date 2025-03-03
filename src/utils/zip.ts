@@ -3,6 +3,8 @@ import { join } from "path";
 
 import type JSZip from "jszip";
 
+import { slash } from "./slash";
+
 /**
  * Recursively adds files from a directory to a JSZip object
  * @param zip The JSZip object to add files to
@@ -25,7 +27,7 @@ export async function addDirectoryToZip(
       await addDirectoryToZip(zip, fullPath, relativePath);
     } else {
       const content = await readFile(fullPath);
-      zip.file(relativePath, content);
+      zip.file(slash(relativePath), content);
     }
   }
 }
