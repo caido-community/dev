@@ -108,7 +108,7 @@ export async function watch(options: { path?: string; config?: string }) {
   ];
   const watcher = chokidarWatch(filesToWatch, {
     ignoreInitial: true,
-    ignored: (f) => f.includes("dist/"),
+    ignored: (f) => f.includes("dist/") || f.includes("node_modules/"),
   });
 
   watcher.on("all", async (event: string, filePath: string) => {
