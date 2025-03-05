@@ -22,6 +22,8 @@ A development toolkit for building Caido plugins. This CLI tool simplifies the p
 pnpm install -D @caido-community/dev
 ```
 
+You can then access the binary via `caido-dev`. If you installed it local to your package, it can be run using `pnpm exec caido-dev`.
+
 ## 📟 CLI Commands
 
 ### Build
