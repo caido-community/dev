@@ -14,7 +14,7 @@ import {
   type ErrorMessage,
   type RebuildMessage,
 } from "../types";
-import { logError, logInfo } from "../utils";
+import { logError, logInfo, slash } from "../utils";
 
 import { build } from "./build";
 
@@ -97,7 +97,9 @@ export async function watch(options: { path?: string; config?: string }) {
   const watchFiles = await Promise.all(
     watchPatterns.map(async (pattern) => {
       const files = [];
-      const glob = new Glob(pattern, {});
+      const glob = new Glob(slash(pattern), {
+        ignore: ["**/node_modules/**", "**/dist/**"],
+      });
       for await (const file of glob) {
         files.push(file);
       }
