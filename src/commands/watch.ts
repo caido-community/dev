@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import { createServer } from "http";
 import path from "path";
 
+import { Glob } from "glob";
+
 import { watch as chokidarWatch } from "chokidar";
 import express, { type Request, type Response } from "express";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -95,7 +97,8 @@ export async function watch(options: { path?: string; config?: string }) {
   const watchFiles = await Promise.all(
     watchPatterns.map(async (pattern) => {
       const files = [];
-      for await (const file of fs.glob(pattern)) {
+      const glob = new Glob(pattern, {});
+      for await (const file of glob) {
         files.push(file);
       }
       return files;

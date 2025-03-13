@@ -23,6 +23,7 @@ export function cp(cwd: string, src: string, dest: string) {
       const fileName = path.basename(file);
       fileDest = path.join(dest, fileName);
     }
+    // eslint-disable-next-line n/no-unsupported-features/node-builtins
     fs.cpSync(fileSrc, fileDest, { recursive: true });
   }
 }

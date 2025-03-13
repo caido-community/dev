@@ -5,5 +5,6 @@ export default [
     vue: false,
     stylistic: false,
     compat: false,
+    node: true,
   }),
 ];
