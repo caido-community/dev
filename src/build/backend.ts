@@ -25,7 +25,7 @@ function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
     config: false,
     clean: true,
     sourcemap: false,
-    external: [/caido:.+/, ...builtinModules],
+    external: [/caido:.+/, "sqlite", ...builtinModules],
   }) as Options;
 }
 
