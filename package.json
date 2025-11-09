@@ -26,6 +26,7 @@
     "cli"
   ],
   "author": "Caido Labs Inc.",
+  "repository": "https://github.com/caido-community/dev",
   "license": "MIT",
   "engines": {
     "node": ">=20",
