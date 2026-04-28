@@ -3,11 +3,15 @@ import path from "path";
 
 import { afterAll, beforeAll, expect } from "vitest";
 
+function hasPathSegment(filePath: string, segment: string) {
+  return filePath.split(/[\\/]+/).includes(segment);
+}
+
 beforeAll(({ file }) => {
   // Get the test file path from the current test file
   const testPath = file.filepath;
 
-  if (!testPath.split(path.sep).includes("playgrounds")) {
+  if (!hasPathSegment(testPath, "playgrounds")) {
     return;
   }
 
