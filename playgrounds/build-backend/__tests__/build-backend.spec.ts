@@ -99,7 +99,7 @@ describe("build-backend", () => {
     expect(readmeContent).not.toContain("assets/test.png");
   });
 
-  it("should remove external image URLs (http, https, data)", async () => {
+  it("should remove external image URLs (http, https)", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();

@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import path from "path";
 
 import { afterAll, beforeAll, expect } from "vitest";
@@ -22,9 +22,13 @@ beforeAll(({ file }) => {
 
   // Run pnpm build in the playground directory
   console.log(`Building playground in ${playgroundDir}...`);
-  execSync("node ../../dist/cli.js build", {
-    cwd: playgroundDir,
-  });
+  execFileSync(
+    process.execPath,
+    [path.join("..", "..", "dist", "cli.js"), "build"],
+    {
+      cwd: playgroundDir,
+    },
+  );
 });
 
 afterAll(() => {
