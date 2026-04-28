@@ -80,9 +80,9 @@ describe("build-frontend", () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    // HTML <img src="assets/test.txt"> and <a href="assets/test.txt"> should be transformed
+    // HTML <img src="assets/test.png"> and <a href="assets/test.txt"> should be transformed
     expect(readmeContent).toMatch(
-      /src="https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt"/,
+      /src="https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.png"/,
     );
     expect(readmeContent).toMatch(
       /href="https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt"/,

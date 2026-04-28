@@ -44,7 +44,7 @@ Reference-style image and link using definitions:
 
 Raw HTML with local and external URLs:
 
-<img src="assets/test.txt" alt="HTML Local Image" />
+<img src="assets/test.png" alt="HTML Local Image" />
 <img src="https://example.com/image.png" alt="HTML External Image" />
 <a href="assets/test.txt">HTML Local Link</a>
 <a href="https://example.com/docs">HTML External Link</a>
