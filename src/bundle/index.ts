@@ -10,6 +10,7 @@ import { addDirectoryToZip, logInfo, logSuccess } from "../utils";
 
 import { bundleBackendPlugin } from "./backend";
 import { bundleFrontendPlugin } from "./frontend";
+import { parseGitHubRepoInfo, transformReadmeImages } from "./readme-assets";
 
 /**
  * Creates the dist directories.
@@ -50,6 +51,36 @@ export async function bundlePackage(options: {
 
   // Create dist directories
   const { distDir, pluginPackageDir } = await createDistDirectories(cwd);
+
+  // Copy README.md (always included, always at root)
+  const readmePath = path.join(cwd, "README.md");
+  try {
+    await fs.access(readmePath);
+  } catch {
+    throw new Error("README.md is required but not found in project root");
+  }
+
+  // Read repository URL from project's package.json
+  const packageJsonPath = path.join(cwd, "package.json");
+  const packageJsonContent = await fs.readFile(packageJsonPath, "utf-8");
+  const packageJson = JSON.parse(packageJsonContent);
+  const repoUrl =
+    typeof packageJson.repository === "string"
+      ? packageJson.repository
+      : packageJson.repository?.url;
+  if (!repoUrl) {
+    throw new Error("package.json must have a valid 'repository' field");
+  }
+
+  // Parse GitHub repo info (default to main branch)
+  const repoInfo = parseGitHubRepoInfo(repoUrl, "main");
+
+  // Transform README image links to GitHub raw URLs
+  const transformedReadme = await transformReadmeImages(readmePath, repoInfo);
+
+  // Write transformed README to package directory
+  const readmeDest = path.join(pluginPackageDir, "README.md");
+  await fs.writeFile(readmeDest, transformedReadme);
 
   // Create manifest
   const manifest = createManifest({ config });

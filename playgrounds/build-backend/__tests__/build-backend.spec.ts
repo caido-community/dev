@@ -83,4 +83,31 @@ describe("build-backend", () => {
 
     expect(assetContent).toBeUndefined();
   });
+
+  it("should have README.md file", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("Backend Plugin Playground");
+  });
+
+  it("should transform README image links to GitHub raw URLs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // Verify that the image link was transformed to a GitHub raw URL
+    expect(readmeContent).toMatch(
+      /https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt/,
+    );
+  });
+
+  it("should remove external image URLs (http, https, data)", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // Verify that external URLs are removed (set to empty string)
+    // The README has: ![External Image](https://example.com/image.png)
+    // After transformation, it should be: ![](...)
+    expect(readmeContent).toMatch(/!\[External Image\]\(\)/);
+  });
 });

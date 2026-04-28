@@ -2,10 +2,9 @@ import fs from "fs/promises";
 import { createServer } from "http";
 import path from "path";
 
-import { Glob } from "glob";
-
 import { watch as chokidarWatch } from "chokidar";
 import express, { type Request, type Response } from "express";
+import { Glob } from "glob";
 import { type WebSocket, WebSocketServer } from "ws";
 
 import { loadConfig } from "../config";
