@@ -14,11 +14,11 @@ It demonstrates a minimal frontend Caido plugin configuration and is used in int
 
 The following image reference is used to test automatic asset detection from README content:
 
-![Test Asset](assets/test.txt)
+![Test Asset](assets/test.png)
 
 ## Link Test Cases
 
-Local link that should be transformed to a GitHub raw URL:
+Local link that should be preserved:
 
 [Local Doc](assets/test.txt)
 
@@ -37,7 +37,7 @@ Reference-style image and link using definitions:
 ![Ref Image][ref-image]
 [Ref Link][ref-link]
 
-[ref-image]: assets/test.txt
+[ref-image]: assets/test.png
 [ref-link]: https://example.com/docs
 
 ## HTML Test Cases

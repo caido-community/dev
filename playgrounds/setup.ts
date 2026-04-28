@@ -7,6 +7,10 @@ beforeAll(({ file }) => {
   // Get the test file path from the current test file
   const testPath = file.filepath;
 
+  if (!testPath.split(path.sep).includes("playgrounds")) {
+    return;
+  }
+
   // Find the playground directory (parent of __tests__ directory)
   const playgroundDir = path.dirname(path.dirname(testPath));
 

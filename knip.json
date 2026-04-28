@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/**/*.spec.ts", "playgrounds/**/*.spec.ts"],
+  "project": ["src/**/*.ts", "playgrounds/**/*.ts", "*.config.ts"],
+  "ignore": [
+    "playgrounds/**/caido.config.ts",
+    "playgrounds/**/packages/**"
+  ]
+}

@@ -45,3 +45,7 @@ caido-dev watch [path] [--config <path-to-config>]
 - **Description**: Start the development server and watch for changes.
 - **Options**:
   - `-c, --config <path>`: Path to the `caido.config.ts` file.
+
+## README Assets
+
+Plugin packages always include the root `README.md`. Local README images are converted to compressed WebP data URIs during packaging, with each image limited to about 125 KiB and the final README limited to about 2 MiB. External `http` and `https` URLs are removed from README links and images, while `data:` URIs and fragment links are preserved.

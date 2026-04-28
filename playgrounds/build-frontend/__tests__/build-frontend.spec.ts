@@ -12,12 +12,12 @@ describe("build-frontend", () => {
     expect(readmeContent).toContain("Frontend Build Playground");
   });
 
-  it("should transform README image links to GitHub raw URLs", async () => {
+  it("should inline README image links as WebP data URIs", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    expect(readmeContent).toContain("raw.githubusercontent.com");
-    expect(readmeContent).toContain("assets/test.txt");
+    expect(readmeContent).toContain("data:image/webp;base64,");
+    expect(readmeContent).not.toContain("assets/test.png");
   });
 
   it("should remove external image URLs", async () => {
@@ -37,14 +37,11 @@ describe("build-frontend", () => {
     );
   });
 
-  it("should transform local markdown links to GitHub raw URLs", async () => {
+  it("should preserve local markdown link URLs", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    // [Local Doc](assets/test.txt) should become a GitHub raw URL
-    expect(readmeContent).toMatch(
-      /\[Local Doc\]\(https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt\)/,
-    );
+    expect(readmeContent).toContain("[Local Doc](assets/test.txt)");
   });
 
   it("should remove external markdown link URLs", async () => {
@@ -64,29 +61,21 @@ describe("build-frontend", () => {
     expect(readmeContent).toContain("[Jump to section](#purpose)");
   });
 
-  it("should transform reference-style definition URLs", async () => {
+  it("should inline reference-style image definition URLs", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    // [ref-image]: assets/test.txt should be transformed to a GitHub raw URL
-    expect(readmeContent).toMatch(
-      /\[ref-image\]:\s*https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt/,
-    );
+    expect(readmeContent).toMatch(/\[ref-image\]:\s*data:image\/webp;base64,/);
     // [ref-link]: https://example.com/docs is external and should be removed
     expect(readmeContent).not.toContain("https://example.com/docs");
   });
 
-  it("should transform local HTML src/href attributes", async () => {
+  it("should inline local HTML image src attributes and preserve href attributes", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    // HTML <img src="assets/test.png"> and <a href="assets/test.txt"> should be transformed
-    expect(readmeContent).toMatch(
-      /src="https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.png"/,
-    );
-    expect(readmeContent).toMatch(
-      /href="https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt"/,
-    );
+    expect(readmeContent).toMatch(/src="data:image\/webp;base64,/);
+    expect(readmeContent).toContain('href="assets/test.txt"');
   });
 
   it("should remove external URLs in HTML attributes", async () => {

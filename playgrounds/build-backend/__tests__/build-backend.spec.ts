@@ -91,14 +91,12 @@ describe("build-backend", () => {
     expect(readmeContent).toContain("Backend Plugin Playground");
   });
 
-  it("should transform README image links to GitHub raw URLs", async () => {
+  it("should inline README image links as WebP data URIs", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    // Verify that the image link was transformed to a GitHub raw URL
-    expect(readmeContent).toMatch(
-      /https:\/\/raw\.githubusercontent\.com\/.*\/assets\/test\.txt/,
-    );
+    expect(readmeContent).toContain("data:image/webp;base64,");
+    expect(readmeContent).not.toContain("assets/test.png");
   });
 
   it("should remove external image URLs (http, https, data)", async () => {

@@ -44,3 +44,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Knip
+        run: pnpm exec knip
