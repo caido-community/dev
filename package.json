@@ -41,6 +41,7 @@
     "glob": "11.0.1",
     "jiti": "2.4.2",
     "jszip": "3.10.1",
+    "parse5": "^8.0.1",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
     "sharp": "^0.34.5",

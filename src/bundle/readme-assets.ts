@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 
 import type { Definition, Html, Image, Link } from "mdast";
+import { type DefaultTreeAdapterMap, parseFragment, serialize } from "parse5";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import sharp from "sharp";
@@ -26,6 +27,10 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 
 type UrlNode = Image | Link | Definition;
+type HtmlNode = DefaultTreeAdapterMap["node"];
+type HtmlParentNode = DefaultTreeAdapterMap["parentNode"];
+type HtmlElement = DefaultTreeAdapterMap["element"];
+type HtmlTemplate = DefaultTreeAdapterMap["template"];
 
 /**
  * Checks if a URL is external (http or https).
@@ -61,26 +66,51 @@ function isLocalImageUrl(url: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(pathname).toLowerCase());
 }
 
-function resolveReadmeAssetPath(readmeDir: string, url: string): string {
-  const assetPath = path.resolve(readmeDir, decodeLocalPathname(url));
-  const relativeAssetPath = path.relative(readmeDir, assetPath);
+function normalizePathForComparison(filePath: string): string {
+  const normalizedPath = path.resolve(filePath);
+  return process.platform === "win32"
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+}
 
-  if (
-    relativeAssetPath === "" ||
-    relativeAssetPath.startsWith("..") ||
-    path.isAbsolute(relativeAssetPath)
-  ) {
+function isPathInDirectory(directory: string, filePath: string): boolean {
+  const normalizedDirectory = normalizePathForComparison(directory);
+  const normalizedFilePath = normalizePathForComparison(filePath);
+  const directoryWithSeparator = normalizedDirectory.endsWith(path.sep)
+    ? normalizedDirectory
+    : `${normalizedDirectory}${path.sep}`;
+
+  return normalizedFilePath.startsWith(directoryWithSeparator);
+}
+
+async function resolveReadmeAssetPath(
+  readmeDir: string,
+  url: string,
+): Promise<string> {
+  const assetPath = path.resolve(readmeDir, decodeLocalPathname(url));
+  const assetStats = await fs.lstat(assetPath);
+
+  if (assetStats.isSymbolicLink()) {
     throw new Error(`README asset path escapes project root: ${url}`);
   }
 
-  return assetPath;
+  const [realReadmeDir, realAssetPath] = await Promise.all([
+    fs.realpath(readmeDir),
+    fs.realpath(assetPath),
+  ]);
+
+  if (!isPathInDirectory(realReadmeDir, realAssetPath)) {
+    throw new Error(`README asset path escapes project root: ${url}`);
+  }
+
+  return realAssetPath;
 }
 
 export async function compressImageToWebpDataUri(
   readmeDir: string,
   originalUrl: string,
 ): Promise<string> {
-  const assetPath = resolveReadmeAssetPath(readmeDir, originalUrl);
+  const assetPath = await resolveReadmeAssetPath(readmeDir, originalUrl);
   const input = await fs.readFile(assetPath);
 
   let bestBuffer: Buffer | undefined;
@@ -148,55 +178,72 @@ async function transformNodeUrl(
   node.url = await compressImageToWebpDataUri(readmeDir, originalUrl);
 }
 
+function isHtmlElement(node: HtmlNode): node is HtmlElement {
+  return "attrs" in node;
+}
+
+function isHtmlParentNode(node: HtmlNode): node is HtmlParentNode {
+  return "childNodes" in node;
+}
+
+function isHtmlTemplate(node: HtmlNode): node is HtmlTemplate {
+  return "content" in node;
+}
+
 /**
  * Transforms URLs found in raw HTML nodes (e.g., <img src="...">, <a href="...">).
  * External URLs are removed, and local image src attributes are inlined as
  * compressed WebP data URIs.
  */
 async function transformHtmlNode(node: Html, readmeDir: string): Promise<void> {
-  const attributeRegex = /\b(src|href)\s*=\s*(["'])([^"']*)\2/gi;
-  const matches: {
-    attr: string;
-    quote: string;
-    value: string;
-    full: string;
-  }[] = [];
+  const fragment = parseFragment(node.value);
 
-  let match: RegExpExecArray | undefined;
-  while ((match = attributeRegex.exec(node.value) ?? undefined) !== undefined) {
-    matches.push({
-      attr: match[1],
-      quote: match[2],
-      value: match[3],
-      full: match[0],
-    });
-  }
+  async function transformElementAttributes(element: HtmlElement) {
+    for (const attr of element.attrs) {
+      const attrName = attr.name.toLowerCase();
+      if (attrName !== "src" && attrName !== "href") {
+        continue;
+      }
 
-  let updatedValue = node.value;
-  for (const { attr, quote, value, full } of matches) {
-    const kind = attr === "src" ? "image" : "link";
+      const kind = attrName === "src" ? "image" : "link";
+      if (
+        !attr.value ||
+        attr.value.startsWith("#") ||
+        attr.value.startsWith("data:")
+      ) {
+        continue;
+      }
 
-    if (!value || value.startsWith("#") || value.startsWith("data:")) {
-      continue;
-    }
-
-    let replacement: string | undefined;
-    if (isExternalUrl(value)) {
-      logInfo(
-        `Warning: Skipping external ${kind} URL in README HTML: ${value}`,
-      );
-      replacement = `${attr}=${quote}${quote}`;
-    } else if (attr === "src" && isLocalImageUrl(value)) {
-      const dataUri = await compressImageToWebpDataUri(readmeDir, value);
-      replacement = `${attr}=${quote}${dataUri}${quote}`;
-    }
-
-    if (replacement !== undefined) {
-      updatedValue = updatedValue.replace(full, replacement);
+      if (isExternalUrl(attr.value)) {
+        logInfo(
+          `Warning: Skipping external ${kind} URL in README HTML: ${attr.value}`,
+        );
+        attr.value = "";
+      } else if (attrName === "src" && isLocalImageUrl(attr.value)) {
+        attr.value = await compressImageToWebpDataUri(readmeDir, attr.value);
+      }
     }
   }
 
-  node.value = updatedValue;
+  async function walkHtmlNodes(parentNode: HtmlParentNode) {
+    for (const childNode of parentNode.childNodes) {
+      if (isHtmlElement(childNode)) {
+        await transformElementAttributes(childNode);
+      }
+
+      if (isHtmlParentNode(childNode)) {
+        await walkHtmlNodes(childNode);
+      }
+
+      if (isHtmlTemplate(childNode)) {
+        await walkHtmlNodes(childNode.content);
+      }
+    }
+  }
+
+  await walkHtmlNodes(fragment);
+
+  node.value = serialize(fragment);
 }
 
 /**
