@@ -48,4 +48,6 @@ caido-dev watch [path] [--config <path-to-config>]
 
 ## README Assets
 
-Plugin packages always include the root `README.md`. Local README images are converted to compressed WebP data URIs during packaging, with each image limited to about 125 KiB and the final README limited to about 2 MiB. External `http` and `https` URLs are removed from README links and images, while `data:` URIs and fragment links are preserved.
+Plugin packages always include the root `README.md`. Local README images are resized when needed and converted to compressed WebP data URIs during packaging, with each image limited to about 100 KiB before base64 encoding and the final README limited to about 2 MiB.
+
+The packaged README is intended for self-contained rendering in Caido. Relative local image references are inlined, relative local non-image links are preserved, and fragment links such as `#purpose` are preserved. Unsupported URL schemes and absolute URLs, including `http:`, `https:`, protocol-relative URLs, `javascript:`, `file:`, `blob:`, and `mailto:`, are removed from Markdown and raw HTML URL attributes. Existing `data:image` URIs are preserved only in image contexts when they are small base64 raster images; other `data:` URLs are removed.

@@ -1,8 +1,16 @@
 import fs from "fs/promises";
 import path from "path";
 
-import type { Definition, Html, Image, Link } from "mdast";
+import type {
+  Definition,
+  Html,
+  Image,
+  ImageReference,
+  Link,
+  LinkReference,
+} from "mdast";
 import { type DefaultTreeAdapterMap, parseFragment, serialize } from "parse5";
+import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import sharp from "sharp";
@@ -11,8 +19,13 @@ import { visit } from "unist-util-visit";
 
 import { logInfo } from "../utils";
 
-const MAX_INLINED_IMAGE_BYTES = 100 * 1024; // 133Kb base64 encoded
+const MAX_INLINED_IMAGE_BYTES = 100 * 1024;
+const MAX_INLINED_IMAGE_DATA_URI_BYTES =
+  Math.ceil((MAX_INLINED_IMAGE_BYTES * 4) / 3) +
+  "data:image/webp;base64,".length;
 const MAX_README_BYTES = 2 * 1024 * 1024; // 2 Mb
+const MAX_IMAGE_DIMENSION = 1600;
+const MAX_INPUT_IMAGE_PIXELS = 40_000_000;
 const WEBP_MIME_TYPE = "image/webp";
 const IMAGE_EXTENSIONS = new Set([
   ".avif",
@@ -27,26 +40,31 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 
 type UrlNode = Image | Link | Definition;
+type UrlClassification =
+  | "empty"
+  | "fragment"
+  | "data-image"
+  | "local-image"
+  | "local-non-image"
+  | "blocked";
+type UrlContext = "image" | "link" | "definition" | "resource";
 type HtmlNode = DefaultTreeAdapterMap["node"];
 type HtmlParentNode = DefaultTreeAdapterMap["parentNode"];
 type HtmlElement = DefaultTreeAdapterMap["element"];
 type HtmlTemplate = DefaultTreeAdapterMap["template"];
 
-/**
- * Checks if a URL is external (http or https).
- * data: URIs and fragment identifiers are not considered external.
- */
-function isExternalUrl(url: string): boolean {
-  if (url.startsWith("data:") || url.startsWith("#")) {
-    return false;
-  }
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+const DATA_IMAGE_URL_PATTERN =
+  /^data:image\/(?:avif|gif|jpe?g|png|webp)(?:;[a-z0-9.+_-]+=[a-z0-9.+_-]+)*;base64,[a-z0-9+/]+={0,2}$/i;
+const BLOCKED_HTML_URL_ATTRIBUTES = new Set([
+  "action",
+  "background",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "xlink:href",
+]);
 
 function getLocalPathname(url: string): string {
   const markerIndex = url.search(/[?#]/);
@@ -64,6 +82,79 @@ function decodeLocalPathname(url: string): string {
 function isLocalImageUrl(url: string): boolean {
   const pathname = decodeLocalPathname(url);
   return IMAGE_EXTENSIONS.has(path.extname(pathname).toLowerCase());
+}
+
+function normalizeDefinitionIdentifier(identifier: string): string {
+  return identifier.toUpperCase();
+}
+
+function hasUrlScheme(url: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url);
+}
+
+function isProtocolRelativeUrl(url: string): boolean {
+  return url.startsWith("//") || url.startsWith("\\\\");
+}
+
+function isAbsoluteLocalPath(url: string): boolean {
+  const pathname = decodeLocalPathname(url);
+  return path.isAbsolute(pathname) || path.win32.isAbsolute(pathname);
+}
+
+function isDataImageUrl(url: string): boolean {
+  return (
+    DATA_IMAGE_URL_PATTERN.test(url) &&
+    Buffer.byteLength(url, "utf-8") <= MAX_INLINED_IMAGE_DATA_URI_BYTES
+  );
+}
+
+function classifyReadmeUrl(originalUrl: string): UrlClassification {
+  const url = originalUrl.trim();
+
+  if (url === "") {
+    return "empty";
+  }
+
+  if (url.startsWith("#")) {
+    return "fragment";
+  }
+
+  if (url.toLowerCase().startsWith("data:")) {
+    return isDataImageUrl(url) ? "data-image" : "blocked";
+  }
+
+  if (
+    isProtocolRelativeUrl(url) ||
+    hasUrlScheme(url) ||
+    isAbsoluteLocalPath(url)
+  ) {
+    return "blocked";
+  }
+
+  return isLocalImageUrl(url) ? "local-image" : "local-non-image";
+}
+
+function logSkippedReadmeUrl(kind: string, url: string) {
+  const displayUrl = url.length > 200 ? `${url.slice(0, 200)}...` : url;
+  logInfo(`Warning: Skipping unsupported ${kind} URL in README: ${displayUrl}`);
+}
+
+function shouldPreserveClassifiedUrl(
+  classification: UrlClassification,
+  context: UrlContext,
+): boolean {
+  switch (classification) {
+    case "empty":
+      return true;
+    case "fragment":
+      return context === "link" || context === "definition";
+    case "data-image":
+      return context !== "link";
+    case "local-non-image":
+      return context === "link" || context === "definition";
+    default:
+      return false;
+  }
 }
 
 function normalizePathForComparison(filePath: string): string {
@@ -117,8 +208,14 @@ export async function compressImageToWebpDataUri(
   for (const quality of [80, 70, 60, 50, 40, 30, 20]) {
     const output = await sharp(input, {
       animated: true,
-      limitInputPixels: false,
+      limitInputPixels: MAX_INPUT_IMAGE_PIXELS,
     })
+      .resize({
+        width: MAX_IMAGE_DIMENSION,
+        height: MAX_IMAGE_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .webp({ quality, effort: 6 })
       .toBuffer();
 
@@ -147,35 +244,31 @@ export async function compressImageToWebpDataUri(
 }
 
 /**
- * Transforms a URL on a markdown node. External URLs are removed. Local image
- * URLs are inlined as compressed WebP data URIs. Other local links are left as-is.
+ * Transforms a URL on a markdown node. Unsupported URL schemes are removed.
+ * Local image URLs are inlined as compressed WebP data URIs. Other local links
+ * are left as-is.
  */
 async function transformNodeUrl(
   node: UrlNode,
   readmeDir: string,
   kind: string,
+  context: UrlContext,
 ): Promise<void> {
-  const originalUrl = node.url;
+  const originalUrl = node.url.trim();
+  const classification = classifyReadmeUrl(originalUrl);
 
-  if (
-    !originalUrl ||
-    originalUrl.startsWith("#") ||
-    originalUrl.startsWith("data:")
-  ) {
+  if (shouldPreserveClassifiedUrl(classification, context)) {
+    node.url = originalUrl;
     return;
   }
 
-  if (isExternalUrl(originalUrl)) {
-    logInfo(`Warning: Skipping external ${kind} URL in README: ${originalUrl}`);
-    node.url = "";
+  if (classification === "local-image") {
+    node.url = await compressImageToWebpDataUri(readmeDir, originalUrl);
     return;
   }
 
-  if (!isLocalImageUrl(originalUrl)) {
-    return;
-  }
-
-  node.url = await compressImageToWebpDataUri(readmeDir, originalUrl);
+  logSkippedReadmeUrl(kind, originalUrl);
+  node.url = "";
 }
 
 function isHtmlElement(node: HtmlNode): node is HtmlElement {
@@ -192,8 +285,9 @@ function isHtmlTemplate(node: HtmlNode): node is HtmlTemplate {
 
 /**
  * Transforms URLs found in raw HTML nodes (e.g., <img src="...">, <a href="...">).
- * External URLs are removed, and local image src attributes are inlined as
- * compressed WebP data URIs.
+ * Unsupported URL schemes are removed, local image resource attributes are
+ * inlined as compressed WebP data URIs, and broader load-bearing attributes are
+ * emptied.
  */
 async function transformHtmlNode(node: Html, readmeDir: string): Promise<void> {
   const fragment = parseFragment(node.value);
@@ -201,27 +295,37 @@ async function transformHtmlNode(node: Html, readmeDir: string): Promise<void> {
   async function transformElementAttributes(element: HtmlElement) {
     for (const attr of element.attrs) {
       const attrName = attr.name.toLowerCase();
-      if (attrName !== "src" && attrName !== "href") {
-        continue;
-      }
-
-      const kind = attrName === "src" ? "image" : "link";
-      if (
-        !attr.value ||
-        attr.value.startsWith("#") ||
-        attr.value.startsWith("data:")
-      ) {
-        continue;
-      }
-
-      if (isExternalUrl(attr.value)) {
-        logInfo(
-          `Warning: Skipping external ${kind} URL in README HTML: ${attr.value}`,
-        );
+      if (attrName === "style") {
         attr.value = "";
-      } else if (attrName === "src" && isLocalImageUrl(attr.value)) {
-        attr.value = await compressImageToWebpDataUri(readmeDir, attr.value);
+        continue;
       }
+
+      if (attrName === "srcset") {
+        attr.value = "";
+        continue;
+      }
+
+      if (!BLOCKED_HTML_URL_ATTRIBUTES.has(attrName)) {
+        continue;
+      }
+
+      const context: UrlContext = attrName === "href" ? "link" : "resource";
+      const kind = context === "resource" ? "resource" : "link";
+      const originalUrl = attr.value.trim();
+      const classification = classifyReadmeUrl(originalUrl);
+
+      if (shouldPreserveClassifiedUrl(classification, context)) {
+        attr.value = originalUrl;
+        continue;
+      }
+
+      if (classification === "local-image") {
+        attr.value = await compressImageToWebpDataUri(readmeDir, originalUrl);
+        continue;
+      }
+
+      logSkippedReadmeUrl(`HTML ${kind}`, originalUrl);
+      attr.value = "";
     }
   }
 
@@ -254,9 +358,10 @@ async function transformHtmlNode(node: Html, readmeDir: string): Promise<void> {
  *   - `definition`: [ref]: path (reference-style images/links)
  *   - `html`: <img src="..."> and <a href="..."> in raw HTML blocks
  *
- * External URLs (http, https) are removed to prevent loading external resources.
- * data: URIs are preserved as they are self-contained.
- * Fragment-only links (#anchor) are preserved as same-document anchors.
+ * Unsupported URL schemes are removed to prevent loading external resources.
+ * Small data:image URIs are preserved in image contexts because they are
+ * self-contained. Fragment-only links (#anchor) are preserved as same-document
+ * anchors.
  *
  * @param readmePath - Absolute path to the project's README.md.
  * @returns Modified README content with transformed URLs.
@@ -267,13 +372,18 @@ export async function transformReadmeImages(
   const content = await fs.readFile(readmePath, "utf-8");
   const readmeDir = path.dirname(readmePath);
 
-  const processor = unified().use(remarkParse).use(remarkStringify);
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkStringify);
   const ast = processor.parse(content);
 
   const imageNodes: Image[] = [];
   const linkNodes: Link[] = [];
   const definitionNodes: Definition[] = [];
   const htmlNodes: Html[] = [];
+  const imageReferenceIdentifiers = new Set<string>();
+  const linkReferenceIdentifiers = new Set<string>();
 
   visit(ast, (node) => {
     switch (node.type) {
@@ -286,6 +396,16 @@ export async function transformReadmeImages(
       case "definition":
         definitionNodes.push(node);
         break;
+      case "imageReference":
+        imageReferenceIdentifiers.add(
+          normalizeDefinitionIdentifier(node.identifier),
+        );
+        break;
+      case "linkReference":
+        linkReferenceIdentifiers.add(
+          normalizeDefinitionIdentifier(node.identifier),
+        );
+        break;
       case "html":
         htmlNodes.push(node);
         break;
@@ -295,13 +415,20 @@ export async function transformReadmeImages(
   });
 
   for (const node of imageNodes) {
-    await transformNodeUrl(node, readmeDir, "image");
+    await transformNodeUrl(node, readmeDir, "image", "image");
   }
   for (const node of linkNodes) {
-    await transformNodeUrl(node, readmeDir, "link");
+    await transformNodeUrl(node, readmeDir, "link", "link");
   }
   for (const node of definitionNodes) {
-    await transformNodeUrl(node, readmeDir, "definition");
+    const identifier = normalizeDefinitionIdentifier(node.identifier);
+    const context = linkReferenceIdentifiers.has(identifier)
+      ? "link"
+      : imageReferenceIdentifiers.has(identifier)
+        ? "image"
+        : "definition";
+
+    await transformNodeUrl(node, readmeDir, "definition", context);
   }
   for (const node of htmlNodes) {
     await transformHtmlNode(node, readmeDir);
