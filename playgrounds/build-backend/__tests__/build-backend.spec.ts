@@ -83,4 +83,29 @@ describe("build-backend", () => {
 
     expect(assetContent).toBeUndefined();
   });
+
+  it("should have README.md file", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("Backend Plugin Playground");
+  });
+
+  it("should inline README image links as WebP data URIs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("data:image/webp;base64,");
+    expect(readmeContent).not.toContain("assets/test.png");
+  });
+
+  it("should remove external image URLs (http, https)", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // Verify that external URLs are removed (set to empty string)
+    // The README has: ![External Image](https://example.com/image.png)
+    // After transformation, it should be: ![](...)
+    expect(readmeContent).toMatch(/!\[External Image\]\(\)/);
+  });
 });

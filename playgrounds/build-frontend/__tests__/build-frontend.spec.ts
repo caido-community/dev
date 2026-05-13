@@ -5,6 +5,89 @@ import { describe, expect, it } from "vitest";
 import { getZipFileContent } from "../../../playgrounds/utils";
 
 describe("build-frontend", () => {
+  it("should have README.md file", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("Frontend Build Playground");
+  });
+
+  it("should inline README image links as WebP data URIs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("data:image/webp;base64,");
+    expect(readmeContent).not.toContain("assets/test.png");
+  });
+
+  it("should remove external image URLs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // External URLs should be removed (set to empty string)
+    expect(readmeContent).not.toContain("http://example.com/image.png");
+    expect(readmeContent).not.toContain("https://example.com/image.png");
+    // data: URIs should be kept as-is (not removed)
+    expect(readmeContent).toContain("data:image/png;base64,abc123");
+    // Image syntax should still exist but with empty URLs (alt text preserved)
+    expect(readmeContent).toContain("![External HTTP]()");
+    expect(readmeContent).toContain("![External HTTPS]()");
+    expect(readmeContent).toContain(
+      "![Data URI](data:image/png;base64,abc123)",
+    );
+  });
+
+  it("should preserve local markdown link URLs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toContain("[Local Doc](assets/test.txt)");
+  });
+
+  it("should remove external markdown link URLs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // External link URL should be removed but link text preserved
+    expect(readmeContent).not.toContain("https://example.com/docs");
+    expect(readmeContent).toContain("[External Link]()");
+  });
+
+  it("should preserve fragment-only links", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // Same-document anchors should be preserved as-is
+    expect(readmeContent).toContain("[Jump to section](#purpose)");
+  });
+
+  it("should inline reference-style image definition URLs", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toMatch(/\[ref-image\]:\s*data:image\/webp;base64,/);
+    // [ref-link]: https://example.com/docs is external and should be removed
+    expect(readmeContent).not.toContain("https://example.com/docs");
+  });
+
+  it("should inline local HTML image src attributes and preserve href attributes", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    expect(readmeContent).toMatch(/src="data:image\/webp;base64,/);
+    expect(readmeContent).toContain('href="assets/test.txt"');
+  });
+
+  it("should remove external URLs in HTML attributes", async () => {
+    const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
+    const readmeContent = await getZipFileContent(zipPath, "README.md");
+    expect(readmeContent).toBeDefined();
+    // External URLs in HTML should be emptied
+    expect(readmeContent).not.toContain("https://example.com/image.png");
+    expect(readmeContent).not.toContain("https://example.com/docs");
+    expect(readmeContent).toContain('src=""');
+    expect(readmeContent).toContain('href=""');
+  });
   it("should have manifest.json file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 

@@ -10,6 +10,7 @@ import { addDirectoryToZip, logInfo, logSuccess } from "../utils";
 
 import { bundleBackendPlugin } from "./backend";
 import { bundleFrontendPlugin } from "./frontend";
+import { transformReadmeImages } from "./readme-assets";
 
 /**
  * Creates the dist directories.
@@ -50,6 +51,21 @@ export async function bundlePackage(options: {
 
   // Create dist directories
   const { distDir, pluginPackageDir } = await createDistDirectories(cwd);
+
+  // Copy README.md (always included, always at root)
+  const readmePath = path.join(cwd, "README.md");
+  try {
+    await fs.access(readmePath);
+  } catch {
+    throw new Error("README.md is required but not found in project root");
+  }
+
+  // Inline local README images and remove external README URLs.
+  const transformedReadme = await transformReadmeImages(readmePath);
+
+  // Write transformed README to package directory
+  const readmeDest = path.join(pluginPackageDir, "README.md");
+  await fs.writeFile(readmeDest, transformedReadme);
 
   // Create manifest
   const manifest = createManifest({ config });

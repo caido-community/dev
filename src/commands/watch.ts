@@ -2,10 +2,9 @@ import fs from "fs/promises";
 import { createServer } from "http";
 import path from "path";
 
-import { Glob } from "glob";
-
 import { watch as chokidarWatch } from "chokidar";
 import express, { type Request, type Response } from "express";
+import { Glob } from "glob";
 import { type WebSocket, WebSocketServer } from "ws";
 
 import { loadConfig } from "../config";
@@ -17,6 +16,11 @@ import {
 import { logError, logInfo, slash } from "../utils";
 
 import { build } from "./build";
+
+function isIgnoredPath(filePath: string) {
+  const segments = slash(filePath).split("/");
+  return segments.includes("dist") || segments.includes("node_modules");
+}
 
 export async function watch(options: { path?: string; config?: string }) {
   const { path: cwd = process.cwd(), config: configPath } = options;
@@ -113,7 +117,7 @@ export async function watch(options: { path?: string; config?: string }) {
   ];
   const watcher = chokidarWatch(filesToWatch, {
     ignoreInitial: true,
-    ignored: (f) => f.includes("dist/") || f.includes("node_modules/"),
+    ignored: isIgnoredPath,
   });
 
   watcher.on("all", async (event: string, filePath: string) => {

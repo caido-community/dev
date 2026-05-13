@@ -49,7 +49,7 @@ export async function buildFrontendPlugin(
   const viteConfig = createViteConfig(cwd, pluginConfig);
   await build(viteConfig);
 
-  const hasCss = existsSync(`${pluginRoot}/dist/index.css`);
+  const hasCss = existsSync(path.join(pluginRoot, "dist", "index.css"));
   logInfo("Frontend plugin built successfully");
 
   return {
