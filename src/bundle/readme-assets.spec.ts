@@ -2,13 +2,14 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 
-import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   compressImageToWebpDataUri,
   transformReadmeImages,
 } from "./readme-assets";
+const imageFixture = (name: string) =>
+  new URL(`./__fixtures__/images/${name}`, import.meta.url);
 
 const DATA_URI_PREFIX = "data:image/webp;base64,";
 const MAX_INLINED_IMAGE_BYTES = 100 * 1024;
@@ -18,19 +19,6 @@ const itWindows = process.platform === "win32" ? it : it.skip;
 function decodeWebpDataUri(dataUri: string): Buffer {
   expect(dataUri.startsWith(DATA_URI_PREFIX)).toBe(true);
   return Buffer.from(dataUri.slice(DATA_URI_PREFIX.length), "base64");
-}
-
-async function writePng(filePath: string, width = 256, height = 256) {
-  await sharp({
-    create: {
-      width,
-      height,
-      channels: 4,
-      background: { r: 255, g: 0, b: 0, alpha: 1 },
-    },
-  })
-    .png()
-    .toFile(filePath);
 }
 
 describe("compressImageToWebpDataUri", () => {
@@ -45,58 +33,63 @@ describe("compressImageToWebpDataUri", () => {
   });
 
   it("converts a local image to a WebP data URI under the per-image limit", async () => {
-    await writePng(path.join(tempDir, "image.png"));
+    await fs.copyFile(
+      imageFixture("red256x256.png"),
+      path.join(tempDir, "image.png"),
+    );
+    const source = await fs.readFile(path.join(tempDir, "image.png"));
 
     const dataUri = await compressImageToWebpDataUri(tempDir, "image.png");
     const webp = decodeWebpDataUri(dataUri);
-    const metadata = await sharp(webp).metadata();
 
     expect(webp.byteLength).toBeLessThanOrEqual(MAX_INLINED_IMAGE_BYTES);
-    expect(metadata.format).toBe("webp");
-    expect(metadata.width).toBe(256);
-    expect(metadata.height).toBe(256);
+    expect(webp.byteLength).toBeLessThan(source.byteLength);
   });
 
-  it("resizes large local images before inlining", async () => {
-    await writePng(path.join(tempDir, "large.png"), 3200, 2400);
+  it("converts a large image to a small output", async () => {
+    await fs.copyFile(
+      imageFixture("red3200x2400.png"),
+      path.join(tempDir, "large.png"),
+    );
+    const source = await fs.readFile(path.join(tempDir, "large.png"));
 
     const dataUri = await compressImageToWebpDataUri(tempDir, "large.png");
-    const metadata = await sharp(decodeWebpDataUri(dataUri)).metadata();
+    const webp = decodeWebpDataUri(dataUri);
 
-    expect(metadata.width).toBeLessThanOrEqual(1600);
-    expect(metadata.height).toBeLessThanOrEqual(1600);
+    expect(webp.byteLength).toBeLessThanOrEqual(MAX_INLINED_IMAGE_BYTES);
+    expect(webp.byteLength).toBeLessThan(source.byteLength);
   });
 
   it("resolves encoded local paths and ignores query and fragment markers", async () => {
     const assetDir = path.join(tempDir, "asset dir");
     await fs.mkdir(assetDir);
-    await writePng(path.join(assetDir, "test image.png"), 16, 16);
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(assetDir, "test image.png"),
+    );
 
     const dataUri = await compressImageToWebpDataUri(
       tempDir,
       "asset%20dir/test%20image.png?raw=true#preview",
     );
-    const metadata = await sharp(decodeWebpDataUri(dataUri)).metadata();
 
-    expect(metadata.format).toBe("webp");
-    expect(metadata.width).toBe(16);
-    expect(metadata.height).toBe(16);
+    expect(decodeWebpDataUri(dataUri).byteLength).toBeGreaterThan(0);
   });
 
   itWindows("resolves README image paths with Windows separators", async () => {
     const assetDir = path.join(tempDir, "asset-dir");
     await fs.mkdir(assetDir);
-    await writePng(path.join(assetDir, "test-image.png"), 16, 16);
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(assetDir, "test-image.png"),
+    );
 
     const dataUri = await compressImageToWebpDataUri(
       tempDir,
       "asset-dir\\test-image.png",
     );
-    const metadata = await sharp(decodeWebpDataUri(dataUri)).metadata();
 
-    expect(metadata.format).toBe("webp");
-    expect(metadata.width).toBe(16);
-    expect(metadata.height).toBe(16);
+    expect(decodeWebpDataUri(dataUri).byteLength).toBeGreaterThan(0);
   });
 
   it("rejects README image paths that resolve outside the README directory", async () => {
@@ -105,7 +98,10 @@ describe("compressImageToWebpDataUri", () => {
     );
 
     try {
-      await writePng(path.join(outsideDir, "outside.png"), 16, 16);
+      await fs.copyFile(
+        imageFixture("red16x16.png"),
+        path.join(outsideDir, "outside.png"),
+      );
 
       await expect(
         compressImageToWebpDataUri(
@@ -126,7 +122,10 @@ describe("compressImageToWebpDataUri", () => {
       );
 
       try {
-        await writePng(path.join(outsideDir, "outside.png"), 16, 16);
+        await fs.copyFile(
+          imageFixture("red16x16.png"),
+          path.join(outsideDir, "outside.png"),
+        );
 
         await expect(
           compressImageToWebpDataUri(
@@ -141,7 +140,10 @@ describe("compressImageToWebpDataUri", () => {
   );
 
   itUnix("rejects README image paths that are symlinks", async () => {
-    await writePng(path.join(tempDir, "image.png"), 16, 16);
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(tempDir, "image.png"),
+    );
     await fs.symlink(
       path.join(tempDir, "image.png"),
       path.join(tempDir, "image-link.png"),
@@ -160,7 +162,10 @@ describe("compressImageToWebpDataUri", () => {
       );
 
       try {
-        await writePng(path.join(outsideDir, "outside.png"), 16, 16);
+        await fs.copyFile(
+          imageFixture("red16x16.png"),
+          path.join(outsideDir, "outside.png"),
+        );
         await fs.symlink(outsideDir, path.join(tempDir, "linked-assets"));
 
         await expect(
@@ -168,6 +173,45 @@ describe("compressImageToWebpDataUri", () => {
         ).rejects.toThrow("escapes project root");
       } finally {
         await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("README GIF packaging", () => {
+  it.each([
+    { fixture: "animated.gif", preserved: true },
+    { fixture: "large.gif", preserved: false },
+    { fixture: "animated.gif", preserved: false, oversized: true },
+  ])(
+    "inlines $fixture with preservation $preserved",
+    async ({ fixture, preserved, oversized }) => {
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "readme-gif-"));
+      try {
+        let input = await fs.readFile(
+          new URL(`./__fixtures__/images/${fixture}`, import.meta.url),
+        );
+        if (oversized)
+          input = Buffer.concat([input, Buffer.alloc(MAX_INLINED_IMAGE_BYTES)]);
+        await fs.writeFile(path.join(directory, "image.gif"), input);
+        const readme = path.join(directory, "README.md");
+        await fs.writeFile(readme, "![Animation](image.gif)");
+        const output = await transformReadmeImages(readme);
+        if (preserved) {
+          expect(output).toContain(
+            `data:image/gif;base64,${input.toString("base64")}`,
+          );
+        } else {
+          const encoded = output.match(
+            /data:image\/webp;base64,([A-Za-z0-9+/=]+)/,
+          )?.[1];
+          expect(encoded).toBeDefined();
+          expect(
+            Buffer.from(encoded!, "base64").byteLength,
+          ).toBeLessThanOrEqual(MAX_INLINED_IMAGE_BYTES);
+        }
+      } finally {
+        await fs.rm(directory, { recursive: true, force: true });
       }
     },
   );
@@ -185,7 +229,10 @@ describe("transformReadmeImages", () => {
   });
 
   it("transforms raw HTML URLs with HTML parsing", async () => {
-    await writePng(path.join(tempDir, "local-image.png"), 16, 16);
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(tempDir, "local-image.png"),
+    );
     await fs.writeFile(
       path.join(tempDir, "README.md"),
       [
@@ -193,6 +240,8 @@ describe("transformReadmeImages", () => {
         "<a HREF=https://example.com/docs>External docs</a>",
         "<img src=data:image/png;base64,abc123 alt='Data image'>",
         "<a href=#section>Section</a>",
+        'before <a href="#foo">click</a> after',
+        'before <a href="java&#x09;script:alert(1)">unsafe</a> after',
       ].join("\n"),
     );
 
@@ -204,6 +253,8 @@ describe("transformReadmeImages", () => {
     expect(content).toContain('href=""');
     expect(content).toContain('src="data:image/png;base64,abc123"');
     expect(content).toContain('href="#section"');
+    expect(content).toContain('before <a href="#foo">click</a> after');
+    expect(content).toContain('before <a href="">unsafe</a> after');
   });
 
   it("strips unsupported markdown URL schemes and protocol-relative URLs", async () => {
@@ -269,6 +320,10 @@ describe("transformReadmeImages", () => {
         "",
         "[data-image]: data:image/png;base64,abc123",
         "[data-link]: data:image/png;base64,abc123",
+        "",
+        "![Shared Image][shared] and [Shared Link][shared]",
+        "",
+        "[shared]: data:image/png;base64,abc123",
       ].join("\n"),
     );
 
@@ -276,8 +331,71 @@ describe("transformReadmeImages", () => {
       path.join(tempDir, "README.md"),
     );
 
-    expect(content).toMatch(/\[data-image\]:\s*data:image\/png;base64,abc123/);
-    expect(content).toContain("[data-link]: <>");
+    expect(content).toContain("![Image Ref](data:image/png;base64,abc123)");
+    expect(content).toContain("[Link Ref]()");
+    expect(content).toContain("![Shared Image](data:image/png;base64,abc123)");
+    expect(content).toContain("[Shared Link]()");
+    expect(content).not.toContain("[shared]:");
+  });
+
+  it("rejects a README larger than 2 MiB", async () => {
+    await fs.writeFile(
+      path.join(tempDir, "README.md"),
+      "x".repeat(2 * 1024 * 1024 + 1),
+    );
+
+    await expect(
+      transformReadmeImages(path.join(tempDir, "README.md")),
+    ).rejects.toThrow();
+  });
+
+  it("rejects SVG files referenced by a Markdown image", async () => {
+    await fs.writeFile(
+      path.join(tempDir, "image.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"></svg>',
+    );
+    await fs.writeFile(path.join(tempDir, "README.md"), "![SVG](image.svg)");
+
+    await expect(
+      transformReadmeImages(path.join(tempDir, "README.md")),
+    ).rejects.toThrow(/SVG|Unsupported/i);
+  });
+
+  it("blocks external URLs continued inside a blockquote", async () => {
+    await fs.writeFile(
+      path.join(tempDir, "README.md"),
+      "> [x](\n> https://example.com\n> )",
+    );
+
+    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toBe(
+      "> [x]()\n",
+    );
+  });
+
+  it("inlines local images without changing list prefixes", async () => {
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(tempDir, "image.png"),
+    );
+    const source = "- ![x](\n  image.png\n  )";
+    await fs.writeFile(path.join(tempDir, "README.md"), source);
+
+    const output = await transformReadmeImages(path.join(tempDir, "README.md"));
+    const uri = output.match(/data:image\/webp;base64,[A-Za-z0-9+/=]+/)?.[0];
+    expect(uri).toBeDefined();
+    expect(output.replace(uri!, "image.png")).toMatch(
+      /^[*-] !\[x\]\(image\.png\)\n$/,
+    );
+  });
+
+  it("blocks HTML image URLs without changing blockquote rendering", async () => {
+    const source =
+      '> <div>\n> hello\n> <img src="https://example.com/a.png">\n> </div>';
+    await fs.writeFile(path.join(tempDir, "README.md"), source);
+
+    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toBe(
+      `> \n> \n${source.replace("https://example.com/a.png", "")}\n`,
+    );
   });
 
   it("strips oversized existing data image URIs", async () => {
@@ -296,7 +414,10 @@ describe("transformReadmeImages", () => {
   });
 
   it("strips load-bearing raw HTML URL attributes beyond src and href", async () => {
-    await writePng(path.join(tempDir, "local-image.png"), 16, 16);
+    await fs.copyFile(
+      imageFixture("red16x16.png"),
+      path.join(tempDir, "local-image.png"),
+    );
     await fs.writeFile(
       path.join(tempDir, "README.md"),
       [

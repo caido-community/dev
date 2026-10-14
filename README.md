@@ -24,6 +24,25 @@ pnpm install -D @caido-community/dev
 
 You can then access the binary via `caido-dev`. If you installed it local to your package, it can be run using `pnpm exec caido-dev`.
 
+## Development
+
+The npm package includes a Rust WebAssembly module; installing and running it requires Node.js 20 or newer, not a Rust installation. Rust handles command parsing, package layout and manifest assembly, ZIP generation, Markdown/HTML URL rewriting, and README image conversion. The TypeScript host supplies filesystem and network access, TypeScript configuration loading, and Vite/tsup builds.
+
+Packaging is assembled in memory in one Rust/WASM call. Rust checks every file destination, including expanded assets, for unsafe names, case-insensitive duplicates, and file/directory collisions before the host replaces `dist/`. The host expands asset patterns with the existing Node glob library, checks source containment and symbolic links, and writes the returned byte arrays to `dist/plugin_package/` and `dist/plugin_package.zip`; ZIP creation does not reread those outputs. Manifest validation remains a narrow host callback to Caido's published manifest schema. Invalid inputs and missing README files leave existing outputs intact; filesystem write failures after validation can still leave incomplete outputs.
+
+To build from source:
+
+```bash
+mise install
+mise exec -- rustup target add wasm32-unknown-unknown
+pnpm install
+mise exec -- pnpm build
+mise exec -- pnpm test --run
+mise exec -- pnpm audit:rust
+```
+
+`mise.toml` pins Rust, wasm-bindgen CLI, and cargo-deny. `pnpm build` produces the JavaScript entrypoints plus `dist/wasm/`, which is included in the npm package. Rust dependencies use exact direct versions and a committed `rust/Cargo.lock`; builds use `--locked`. `cargo-deny` checks advisories, licenses, duplicate versions, and dependency sources. Renovate waits at least 14 days before proposing Cargo dependency updates. Until Renovate is active, manually verify that new or updated Rust dependencies, including transitive versions in `rust/Cargo.lock`, were released at least 14 days ago.
+
 ## 📟 CLI Commands
 
 ### Build
@@ -48,6 +67,6 @@ caido-dev watch [path] [--config <path-to-config>]
 
 ## README Assets
 
-Plugin packages always include the root `README.md`. Local README images are resized when needed and converted to compressed WebP data URIs during packaging, with each image limited to about 100 KiB before base64 encoding and the final README limited to about 2 MiB.
+Plugin packages always include the root `README.md`. Local PNG, JPEG, GIF, and WebP images are resized to fit within 1600×1600 pixels without enlargement and converted to lossy WebP data URIs during packaging. Rust/WASM orchestrates local asset conversion, decodes and resizes images, selects encoding quality and retries, enforces size limits, and creates base64 data URIs. A thin TypeScript host checks filesystem containment and symlinks, reads assets, and invokes `@jsquash/webp` using its prebuilt WASM encoder. No Markdown parsing runs in TypeScript. Encoding starts at quality 80 with method 6 and retries at quality 70, 60, 50, 40, 30, and 20 until the image fits. GIFs within 1600×1600 pixels and 100 KiB are inlined unchanged as GIF data URIs, preserving animation. Larger GIFs fall back to first-frame WebP conversion; animated WebP inputs also include only their first frame. SVG, AVIF, TIFF, and other image formats are unsupported and fail with a clear error. Inputs are limited to 40 million pixels; each encoded image must fit within 100 KiB before base64 encoding, and the final README must fit within 2 MiB. Some images still exceed the limit at quality 20 and fail packaging: simplify or resize those images.
 
-The packaged README is intended for self-contained rendering in Caido. Relative local image references are inlined, relative local non-image links are preserved, and fragment links such as `#purpose` are preserved. Unsupported URL schemes and absolute URLs, including `http:`, `https:`, protocol-relative URLs, `javascript:`, `file:`, `blob:`, and `mailto:`, are removed from Markdown and raw HTML URL attributes. Existing `data:image` URIs are preserved only in image contexts when they are small base64 raster images; other `data:` URLs are removed.
+The packaged README is intended for self-contained rendering in Caido. Markdown is parsed and serialized with Comrak in Rust/WASM, so formatting is normalized, reference-style links and images may become inline forms, and unused reference definitions are omitted. Raw HTML is transformed using html5ever tokenization and serialization. Relative local image references are inlined, relative local non-image links are preserved, and fragment links such as `#purpose` are preserved. Unsupported URL schemes and absolute URLs, including `http:`, `https:`, protocol-relative URLs, `javascript:`, `file:`, `blob:`, and `mailto:`, are removed from Markdown and raw HTML URL attributes. Existing `data:image` URIs are preserved only in image contexts when they are small base64 raster images; other `data:` URLs are removed.

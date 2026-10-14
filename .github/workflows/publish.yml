@@ -14,7 +14,7 @@ permissions:
 jobs:
   publish-js:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
 
     steps:
       - name: Checkout project
@@ -25,6 +25,9 @@ jobs:
         with:
           working_directory: .
           version: ${{ vars.CI__MISE_VERSION }}
+
+      - name: Audit Rust dependencies
+        run: pnpm audit:rust
 
       - name: Install
         run: pnpm install

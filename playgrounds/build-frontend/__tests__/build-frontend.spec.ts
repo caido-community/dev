@@ -65,7 +65,7 @@ describe("build-frontend", () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    expect(readmeContent).toMatch(/\[ref-image\]:\s*data:image\/webp;base64,/);
+    expect(readmeContent).toMatch(/!\[Ref Image\]\(data:image\/webp;base64,/);
     // [ref-link]: https://example.com/docs is external and should be removed
     expect(readmeContent).not.toContain("https://example.com/docs");
   });

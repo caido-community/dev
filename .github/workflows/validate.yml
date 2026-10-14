@@ -6,41 +6,38 @@ on:
       - 'main'
   pull_request:
 
-env:
-  NODE_VERSION: 20
-  PNPM_VERSION: 9
-
 jobs:
   validate:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Mise tools
+        uses: caido/action-mise-action@v3.2.0
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          working_directory: .
+          version: ${{ vars.CI__MISE_VERSION }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
+      - name: Setup WASM target
+        run: rustup target add wasm32-unknown-unknown
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit Rust dependencies
+        run: pnpm audit:rust
 
       - name: Build
         run: pnpm build
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm exec vitest run
 
       - name: Typecheck
         run: pnpm typecheck

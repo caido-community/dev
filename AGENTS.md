@@ -111,17 +111,14 @@ The normal build flow is:
    - `workflow` is represented in config but currently has no build implementation.
 4. Bundle build outputs and `README.md` into `dist/plugin_package/`:
    - `README.md` is always included from the project root (path is not configurable).
-   - URL-bearing nodes in `README.md` are parsed using `remark` AST parsing. Handled node types:
-     - `image` (`![alt](path)`)
-     - `link` (`[text](path)`)
-     - `definition` (`[ref]: path` for reference-style images/links)
-     - `html` (raw HTML `<img src="...">` and `<a href="...">` attributes)
+   - Comrak parses `README.md` in Rust/WASM. Image and link URLs are transformed in its syntax tree; reference-style uses are resolved into ordinary image/link nodes. Raw HTML URL attributes are transformed using html5ever tokenization and serialization.
+   - Comrak serializes the transformed tree as Markdown. Formatting is normalized, reference-style uses may become inline links/images, and unused definitions disappear.
    - External URLs (`http://`, `https://`) trigger a warning and have their URLs removed (set to empty string) to prevent loading external resources.
    - `data:` URIs are preserved as-is (self-contained content).
    - Fragment-only links (`#anchor`) are preserved as same-document anchors.
-   - Local image references are converted to compressed WebP `data:` URIs using `sharp`.
+   - Local PNG, JPEG, GIF, and WebP image references are decoded and resized in Rust/WASM, then converted to lossy WebP `data:` URIs with the prebuilt `@jsquash/webp` WASM encoder. GIFs within 1600×1600 pixels and 100 KiB are inlined unchanged to preserve animation; larger GIFs and animated WebP use first-frame WebP conversion. SVG, AVIF, and TIFF are unsupported.
    - Local non-image links are left unchanged.
-   - Inlined images must fit within the documented per-image compression limit (about 125 KiB), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
+   - Inlined images must fit within the documented per-image compression limit (100 KiB before base64 encoding), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
    - Existing build output bundling logic for frontend/backend plugins remains unchanged.
 5. Create and validate `manifest.json` for the bundled frontend/backend outputs; README image inlining does not add manifest entries.
 6. Zip the package as `dist/plugin_package.zip`.
@@ -132,14 +129,14 @@ If you change any part of this flow, update tests and documentation accordingly.
 
 - `README.md` is mandatory; the build will fail if it is missing from the project root.
 - Local image references in `README.md` are converted to compressed WebP `data:` URIs during packaging.
-- Transformation is applied to image URLs found in `image`, `link`, and `definition` markdown nodes, as well as `src` attributes inside raw `html` nodes.
+- Transformation is applied to image URLs in Markdown image/link nodes, including resolved reference-style uses, and URL-bearing attributes inside raw HTML.
 - Local non-image links in markdown and raw HTML are left unchanged.
 - External URLs (`http://`, `https://`) trigger a warning message and have their URL removed (set to empty string for markdown nodes, emptied attribute value for HTML) to prevent loading external resources in the plugin package.
 - `data:` URIs are preserved as-is because they are self-contained.
 - Fragment-only links (e.g., `#purpose`) are preserved as same-document anchors and are not rewritten.
-- README images are compressed with `sharp`; each compressed image must fit under the documented per-image limit (about 125 KiB), and the final transformed README must fit under the documented overall size limit (about 2 MiB).
-- `remark` and `unist-util-visit` are used for robust markdown parsing of `README.md`; do not replace with regex-based approaches. Raw HTML is parsed with `parse5` before `src`/`href` attributes are rewritten.
-- `unist-util-visit` does not support async visitors, so nodes are collected first and then processed sequentially so image compression can `await`.
+- Rust/WASM decodes and resizes README images within 1600×1600 pixels without enlargement. Rust orchestrates conversion, supplies typed RGBA image metadata and encoder options to a TypeScript callback, and creates base64 data URIs. Rust selects lossy WebP quality starting at 80 with method 6 and retries in steps of 10 down to quality 20; the callback only initializes and invokes `@jsquash/webp`. Inputs are capped at 40 million pixels, encoded images at 100 KiB, and transformed README content at 2 MiB. Images that still exceed the byte limit fail packaging.
+- Comrak AST parsing/serialization and html5ever tokenization/serialization handle README transformations; do not replace these libraries with regex-based or custom source-scanning approaches. Preserve rendered Markdown structure and inline HTML boundaries; exact source formatting is not preserved.
+- The TypeScript adapter performs filesystem containment checks, reads local assets, and loads the encoder WASM from the installed `@jsquash/webp` dependency using `createRequire.resolve` and filesystem reads (not file-URL fetch). Image decoding/resizing and URL transformation run in Rust/WASM. Tests use checked-in image fixtures, without a PNG generator or test-only image-processing dependency. Focus on README packaging, conversion to smaller WebP output for representative inputs, resizing, size limits, and path/URL handling rather than testing the image crate's codec implementations.
 
 ## Manifest and config changes
 
@@ -171,7 +168,7 @@ When adding or modifying commands:
 - Do not hand-edit lockfile content.
 - Avoid adding dependencies for small utilities that are easy to implement locally.
 - Prefer dependencies that work in ESM and support the declared Node.js version.
-- `remark` and `unist-util-visit` are used for robust markdown parsing of `README.md` to extract asset references; do not replace with regex-based approaches.
+- Comrak and html5ever provide robust README parsing and serialization in Rust/WASM; prefer their APIs over custom parsing or source rewriting.
 - Do not hardcode secrets or tokens. The npm auth token belongs in environment configuration, not source files.
 
 ## Generated files and artifacts
