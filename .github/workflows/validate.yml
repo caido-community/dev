@@ -11,10 +11,7 @@ permissions:
 
 jobs:
   validate:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       MISE_ENV: dev
@@ -54,6 +51,3 @@ jobs:
 
       - name: Audit Rust dependencies
         run: mise run audit:prod
-
-      - name: Build and run tests
-        run: mise run test
