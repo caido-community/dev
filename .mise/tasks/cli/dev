@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run the CLI from TypeScript; pass CLI arguments after --"
+set -euo pipefail
+
+pnpm exec tsx src/cli.ts "$@"

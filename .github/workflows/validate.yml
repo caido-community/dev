@@ -3,8 +3,11 @@ name: Validate
 on:
   push:
     branches:
-      - 'main'
+      - "main"
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -16,31 +19,39 @@ jobs:
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install Mise tools
-        uses: caido/action-mise-action@v3.2.0
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
         with:
           working_directory: .
           version: ${{ vars.CI__MISE_VERSION }}
-
-      - name: Setup WASM target
-        run: rustup target add wasm32-unknown-unknown
+          install_args: --locked
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Audit Rust dependencies
-        run: pnpm audit:rust
+      - name: Check formatting
+        run: mise run format:prod
 
-      - name: Build
-        run: pnpm build
-
-      - name: Run tests
-        run: pnpm exec vitest run
+      - name: Lint
+        run: mise run lint:prod
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: mise run typecheck:prod
 
       - name: Knip
-        run: pnpm exec knip
+        run: mise run knip:prod
+
+      - name: Audit GitHub Actions workflows
+        run: mise run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Audit Rust dependencies
+        run: mise run audit:prod
+
+      - name: Build and run tests
+        run: mise run test

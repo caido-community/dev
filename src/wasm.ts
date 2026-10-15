@@ -6,15 +6,15 @@ const require = createRequire(import.meta.url);
 const modulePath = import.meta.url.endsWith("/src/wasm.ts")
   ? "../dist/wasm/caido_dev.cjs"
   : "./wasm/caido_dev.cjs";
+// SAFETY: modulePath selects our wasm-bindgen output built from rust/src/lib.rs;
+// these signatures mirror its exported functions and callback contracts.
 export const wasm = require(modulePath) as {
   parse_cli: (args: string) => string;
   plan_package: (input: string) => string;
   package_plugin: (
     input: string,
     readFile: (source: string) => Promise<Uint8Array>,
-    expandAssets: (
-      pattern: string,
-    ) => Promise<{ source: string; relative: string }[]>,
+    expandAssets: (pattern: string) => Promise<{ source: string; relative: string }[]>,
     readAsset: (pathname: string, url: string) => Promise<Uint8Array>,
     encode: ReadmeEncoder,
     validateManifest: (manifest: string) => boolean,

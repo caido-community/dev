@@ -15,10 +15,7 @@ export async function expandPackageAssets(
     const stats = await fs.stat(file);
     if (stats.isDirectory()) {
       for (const child of await fs.readdir(file)) {
-        await collect(
-          path.join(source, child),
-          relative ? `${relative}/${child}` : child,
-        );
+        await collect(path.join(source, child), relative ? `${relative}/${child}` : child);
       }
     } else if (stats.isFile()) {
       files.push({ source: file, relative });
@@ -30,10 +27,7 @@ export async function expandPackageAssets(
   for (const match of new Glob(pattern, { cwd })) {
     const source = path.resolve(cwd, match);
     const file = await checkedSource(source);
-    await collect(
-      source,
-      (await fs.stat(file)).isFile() ? path.basename(match) : "",
-    );
+    await collect(source, (await fs.stat(file)).isFile() ? path.basename(match) : "");
   }
   return files;
 }

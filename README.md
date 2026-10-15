@@ -34,14 +34,22 @@ To build from source:
 
 ```bash
 mise install
-mise exec -- rustup target add wasm32-unknown-unknown
-pnpm install
-mise exec -- pnpm build
-mise exec -- pnpm test --run
-mise exec -- pnpm audit:rust
+mise exec -- pnpm install
+mise run build:dev
+mise run test
+mise run format:prod
+mise run lint:prod
+mise run typecheck:prod
+mise run audit:prod
+mise run zizmor
+mise run knip:prod
 ```
 
-`mise.toml` pins Rust, wasm-bindgen CLI, and cargo-deny. `pnpm build` produces the JavaScript entrypoints plus `dist/wasm/`, which is included in the npm package. Rust dependencies use exact direct versions and a committed `rust/Cargo.lock`; builds use `--locked`. `cargo-deny` checks advisories, licenses, duplicate versions, and dependency sources. Renovate waits at least 14 days before proposing Cargo dependency updates. Until Renovate is active, manually verify that new or updated Rust dependencies, including transitive versions in `rust/Cargo.lock`, were released at least 14 days ago.
+`.mise/config.toml` pins the tools (including the WASM target), and executable scripts under `.mise/tasks/` define repository tasks (for example, `.mise/tasks/format/dev` is `format:dev`). `format:dev` autofixes ESLint issues and formats Rust; `format:prod` checks both without modifying files and is used in CI. This replaces the former lint script, so there is no separate lint task. Other tasks have `:dev` and `:prod` variants: build uses the same release-ready pipeline in both, and typecheck, audit, and knip run the same checks in both. `test` is a single non-watch task that builds with `build:prod` first. Run the source CLI with `mise run cli:dev -- build [path]` or `mise run cli:dev -- watch [path]`; `cli:prod` builds first and runs the packaged CLI with the same arguments. `mise tasks ls` lists all tasks.
+
+`mise run build:prod` produces the JavaScript entrypoints plus `dist/wasm/`, which is included in the npm package. Rust dependencies use exact direct versions and a committed `rust/Cargo.lock`; builds use `--locked`. `cargo-deny` checks advisories, licenses, duplicate versions, and dependency sources. `mise run zizmor` audits GitHub Actions workflows with the pinned zizmor release; it is a single check-only task without `:dev` or `:prod` variants. Without a GitHub token, zizmor runs offline and skips online-only audits. Set `GH_TOKEN` to enable those checks locally; validation CI supplies a read-only token to the audit step. Renovate waits at least 14 days before proposing Cargo dependency updates. Until Renovate is active, manually verify that new or updated Rust dependencies, including transitive versions in `rust/Cargo.lock`, were released at least 14 days ago.
+
+Formatting and linting are separate: `mise run format:dev` writes Oxfmt and Rust formatting, while `mise run lint:dev` applies safe Oxlint fixes. Their `:prod` variants only check files. Oxlint uses the full [Deslop](https://github.com/maharshi365/deslop) recommended rules, including type-aware checks; optional rules are not enabled. Generated output and README/image fixtures are excluded from formatting so their test inputs remain intact. The Oxc development tools require Node.js 20.19+ or 22.12+; Mise supplies Node.js 24, and the published CLI still supports Node.js 20.
 
 ## 📟 CLI Commands
 

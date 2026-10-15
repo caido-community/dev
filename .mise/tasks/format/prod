@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Check Oxfmt and Rust formatting without modifying files"
+set -euo pipefail
+
+pnpm exec oxfmt --check .
+cargo fmt --manifest-path rust/Cargo.toml --all --check

@@ -1,16 +1,18 @@
 #!/usr/bin/env node
+import { z } from "zod";
+
 import { build, watch } from "./commands";
 import { wasm } from "./wasm";
 
 try {
-  const options = JSON.parse(
-    wasm.parse_cli(JSON.stringify(process.argv.slice(2))),
-  ) as {
-    command: "build" | "watch" | "dev" | "help" | "version";
-    path?: string;
-    config?: string;
-    help?: string;
-  };
+  const options = z
+    .object({
+      command: z.enum(["build", "watch", "dev", "help", "version"]),
+      path: z.string().optional(),
+      config: z.string().optional(),
+      help: z.string().optional(),
+    })
+    .parse(JSON.parse(wasm.parse_cli(JSON.stringify(process.argv.slice(2)))));
   switch (options.command) {
     case "build":
       await build(options);

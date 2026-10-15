@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Audit GitHub Actions workflows"
+set -euo pipefail
+
+zizmor .github/workflows

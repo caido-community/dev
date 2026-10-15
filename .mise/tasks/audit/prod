@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Audit Rust dependencies in CI"
+set -euo pipefail
+
+cargo deny --manifest-path rust/Cargo.toml check --config rust/deny.toml

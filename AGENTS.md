@@ -37,24 +37,31 @@ The package declares:
 - Node.js `>=20`
 - pnpm `>=9`
 
-If using Mise, this repository currently pins:
+Use Mise for repository tasks. `.mise/config.toml` pins the tools, including Node.js `24`, pnpm `10.20.0`, Rust, the WASM target, wasm-bindgen CLI, and cargo-deny. Task definitions are executable scripts under `.mise/tasks/` (for example, `.mise/tasks/format/dev` defines `format:dev`).
 
-- Node.js `24`
-- pnpm `10.20.0`
-
-CI validates with Node.js 20 and pnpm 9, so avoid relying on behavior that only works on newer tool versions unless the engine and CI configuration are updated together.
+CI uses the same Mise tools on Ubuntu and Windows. The published package still supports Node.js 20 and pnpm 9, so avoid introducing runtime behavior requiring newer versions without updating the package engines.
 
 ## Common commands
 
 Run from the repository root:
 
-- `pnpm install` — install dependencies.
-- `pnpm build` — build the CLI/library with tsup into `dist/`.
-- `pnpm typecheck` — run TypeScript with `--noEmit`.
-- `pnpm test` — build first, then run Vitest playground tests.
-- `pnpm lint` — run ESLint with autofix over `src` and `playgrounds`.
-- `pnpm dev -- build [path]` — run the CLI directly from TypeScript.
-- `pnpm dev -- watch [path]` — run the watch command directly from TypeScript.
+- `mise install` — install the pinned tools and WASM target.
+- `mise exec -- pnpm install` — install dependencies.
+- `mise run build:dev` — build JavaScript and Rust/WASM into `dist/`.
+- `mise run typecheck:dev` — run TypeScript with `--noEmit`.
+- `mise run test` — build first, then run Vitest once (never watch).
+- `mise run format:dev` — format supported repository files with Oxfmt and format Rust.
+- `mise run format:prod` — check Oxfmt and Rust formatting without modifying files.
+- `mise run lint:dev` — apply safe Oxlint fixes, including Deslop rules.
+- `mise run lint:prod` — check Oxlint and Deslop rules without modifying files.
+- `mise run audit:dev` — run cargo-deny checks.
+- `mise run zizmor` — audit GitHub Actions workflows (single check-only task; set `GH_TOKEN` for online audits).
+- `mise run knip:dev` — check unused code and dependencies. `knip.json` lists Oxfmt as a tooling dependency because it is invoked only by the Mise shell tasks.
+- `mise run cli:dev -- build [path]` — run the CLI directly from TypeScript.
+- `mise run cli:dev -- watch [path]` — run the watch command directly from TypeScript.
+- `mise run cli:prod -- build [path]` — build and run the packaged CLI.
+
+CI uses `:prod` variants; build, typecheck, audit, and knip perform the same work in both variants. Linting and formatting are separate checks. Oxlint enables the full Deslop recommended configuration, including type-aware rules through `oxlint-tsgolint`; optional Deslop rules are not enabled. Keep Oxlint aligned with Deslop's exact `@oxlint/plugins` version. Development requires Node.js 20.19+ or 22.12+ for the Oxc tools (Mise supplies Node.js 24); the published CLI still supports Node.js 20. `test` has no variants and depends on `build:prod`.
 
 Do not start long-running watch/dev processes unless explicitly requested. If you do run one, use a timeout or clearly tell the user it will keep running.
 
@@ -64,8 +71,8 @@ Tests live under `playgrounds/**/*.spec.ts`.
 
 The Vitest setup in `playgrounds/setup.ts` installs dependencies in the relevant playground and runs the built CLI against that fixture. Because of this:
 
-- `pnpm test` can be slower than a typical unit test run.
-- `pnpm test` requires a successful `pnpm build` first; the script handles this automatically.
+- `mise run test` can be slower than a typical unit test run.
+- `mise run test` requires a successful `build:prod` first; the task dependency handles this automatically.
 - Tests may generate `dist/`, `node_modules/`, and other build artifacts inside playground directories.
 - Do not commit generated playground artifacts unless intentionally changing fixtures.
 
@@ -200,10 +207,13 @@ Keep documentation examples compatible with pnpm and the published `caido-dev` b
 
 Before finishing a non-trivial change, try to run:
 
-1. `pnpm build`
-2. `pnpm typecheck`
-3. `pnpm test`
-4. `pnpm lint`
+1. `mise run build:prod`
+2. `mise run typecheck:prod`
+3. `mise run test`
+4. `mise run format:prod`
+5. `mise run audit:prod`
+6. `mise run knip:prod`
+7. `mise run lint:prod`
 
 If you cannot run a command, state why and describe the risk.
 

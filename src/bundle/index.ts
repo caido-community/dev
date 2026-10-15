@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { z } from "zod";
+
 import { validatePackageManifest } from "../manifest";
 import type { BuildOutput, CaidoConfig } from "../types";
 import { logInfo, logSuccess } from "../utils";
@@ -9,17 +11,15 @@ import { wasm } from "../wasm";
 
 import { encodeImage, readAsset } from "./readme-assets";
 
+const fileErrorSchema = z.object({ code: z.string() });
+
 function normalized(file: string): string {
   return process.platform === "win32" ? file.toLowerCase() : file;
 }
 
 function contains(root: string, file: string): boolean {
   const relative = path.relative(normalized(root), normalized(file));
-  return (
-    relative !== ".." &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 export async function bundlePackage(options: {
@@ -45,15 +45,13 @@ export async function bundlePackage(options: {
         );
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (fileErrorSchema.safeParse(error).data?.code !== "ENOENT") throw error;
     }
     for (const plugin of config.plugins) {
       const root = path.resolve(cwd, plugin.root);
       const realRoot = await fs.realpath(root);
       if (contains(distDir, root) || contains(distDir, realRoot)) {
-        throw new Error(
-          "Plugin roots must not be inside the package output directory",
-        );
+        throw new Error("Plugin roots must not be inside the package output directory");
       }
     }
   }
@@ -63,14 +61,8 @@ export async function bundlePackage(options: {
     const file = path.resolve(cwd, source);
     const stats = await fs.lstat(file);
     const realFile = await fs.realpath(file);
-    if (
-      stats.isSymbolicLink() ||
-      !contains(cwd, file) ||
-      !contains(cwd, realFile)
-    ) {
-      throw new Error(
-        `Package source path escapes project root or is a symbolic link: ${source}`,
-      );
+    if (stats.isSymbolicLink() || !contains(cwd, file) || !contains(cwd, realFile)) {
+      throw new Error(`Package source path escapes project root or is a symbolic link: ${source}`);
     }
     return realFile;
   }
@@ -79,10 +71,7 @@ export async function bundlePackage(options: {
     try {
       return await fs.readFile(await checkedSource(source));
     } catch (error) {
-      if (
-        source === "README.md" &&
-        (error as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
+      if (source === "README.md" && fileErrorSchema.safeParse(error).data?.code === "ENOENT") {
         throw new Error("README.md is required but not found in project root");
       }
       throw error;
