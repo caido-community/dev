@@ -1,3 +1,4 @@
 [tools]
+rust = { version = '1.99.0', targets = ['wasm32-unknown-unknown'], components = ['rustfmt'] }
 cargo-deny = '0.19.1'
 zizmor = '1.30.1'
