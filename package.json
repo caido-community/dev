@@ -1,6 +1,6 @@
 {
   "name": "@caido-community/dev",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Development tools for building Caido plugins",
   "keywords": [
     "caido",
