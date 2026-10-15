@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Audit Rust dependencies locally"
+#MISE description="Audit Rust dependencies locally (requires --env dev)"
 set -euo pipefail
 
 cargo deny --manifest-path rust/Cargo.toml check --config rust/deny.toml

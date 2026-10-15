@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+#MISE description="Package all community store repositories (Linux; use --env community)"
+#MISE depends=["build:prod"]
+set -euo pipefail
+
+usage() {
+  echo 'Usage: mise --env community run test-community [--repository caido-community/name]'
+  echo 'Default: every unique caido-community repository in the live plugin store.'
+}
+filter=''
+case "${1:-}" in
+  --help|-h) usage; exit 0 ;;
+  --repository)
+    [[ $# == 2 ]] || { usage >&2; exit 1; }
+    filter=${2,,}
+    ;;
+  '') ;;
+  *) usage >&2; exit 1 ;;
+esac
+[[ $# == 0 || -n $filter ]] || { usage >&2; exit 1; }
+[[ $(uname -s) == Linux ]] || { echo 'This integration task requires Linux.' >&2; exit 1; }
+for tool in curl jq git ouch pnpm node timeout; do
+  command -v "$tool" >/dev/null || { echo "Missing $tool; run mise --env community install --locked (curl, git and GNU coreutils are OS prerequisites)." >&2; exit 1; }
+done
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+cli="$root/dist/cli.js"
+[[ -s $cli ]] || { echo "Missing built CLI: $cli" >&2; exit 1; }
+work=$(mktemp -d -t caido-community-test.XXXXXXXX)
+echo "Temporary clones and logs: $work"
+# Retain diagnostics on unexpected errors as well as individual repository failures.
+trap 'status=$?; if (( status != 0 )); then echo "Diagnostics retained at $work" >&2; fi' EXIT
+curl --fail --silent --show-error --location --max-time 30 \
+  https://raw.githubusercontent.com/caido/store/main/plugin_packages.json > "$work/store.json"
+jq -er '
+  if type != "array" then error("Store index must be an array") else . end
+  | map(if (.repository | type) != "string" then error("Missing repository string") else .repository end)
+  | map(select((split("/")[0] | ascii_downcase) == "caido-community"))
+  | map(ascii_downcase)
+  | if all(.[]; test("^caido-community/[a-z0-9][a-z0-9._-]*$")) then unique[] else error("Unsafe repository name") end
+' "$work/store.json" > "$work/repositories.txt"
+mapfile -t repositories < "$work/repositories.txt"
+(( ${#repositories[@]} > 0 )) || { echo 'No community repositories in store.' >&2; exit 1; }
+if [[ -n $filter ]]; then
+  found=false
+  for repository in "${repositories[@]}"; do
+    if [[ $repository == "$filter" ]]; then found=true; break; fi
+  done
+  $found || { echo "Repository not listed in community store: $filter" >&2; exit 1; }
+  repositories=("$filter")
+fi
+
+# No inherited tokens, user Git/npm config, SSH agent, or Node startup options.
+# This reduces accidental credential exposure; executing repository code is NOT sandboxed.
+clean_run() {
+  env -i PATH="$PATH" HOME="$home" TMPDIR="$work" \
+    XDG_CONFIG_HOME="$home" XDG_CACHE_HOME="$home/cache" \
+    NPM_CONFIG_USERCONFIG="$home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$home/global.npmrc" \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$home/.gitconfig" GIT_TERMINAL_PROMPT=0 \
+    COREPACK_ENABLE_PROJECT_SPEC=0 CI=true \
+    timeout --kill-after=10s 10m "$@"
+}
+
+package_repository() {
+  stage=clone
+  clean_run git -c credential.helper= clone --depth 1 -- \
+    "https://github.com/$repository.git" "$directory" > "$logs/clone.log" 2>&1 || return
+  stage=install
+  local lock_flag=--no-frozen-lockfile
+  [[ ! -f $directory/pnpm-lock.yaml ]] || lock_flag=--frozen-lockfile
+  (cd "$directory" && clean_run pnpm install "$lock_flag") > "$logs/install.log" 2>&1 || return
+  stage=build
+  rm -rf -- "$directory/dist" || return
+  (cd "$directory" && clean_run node "$cli" build "$directory") > "$logs/build.log" 2>&1 || return
+  stage=archive
+  local archive="$directory/dist/plugin_package.zip" extracted="$logs/extracted"
+  [[ -s $archive ]] || { echo 'Missing or empty plugin_package.zip'; return 1; }
+  clean_run ouch decompress "$archive" --dir "$extracted" > "$logs/archive.log" 2>&1 || return
+  [[ -s $extracted/README.md && -s $extracted/manifest.json ]] || { echo 'Missing nonempty README.md or manifest.json'; return 1; }
+  jq -er '
+    if (.plugins | type) != "array" then error("Manifest plugins must be an array") else .plugins[] end
+    | .entrypoint
+    | if type == "string" and length > 0 then . else error("Invalid entrypoint") end
+  ' "$extracted/manifest.json" > "$logs/entrypoints.txt" || return
+  local entrypoint
+  while IFS= read -r entrypoint; do
+    [[ $entrypoint != /* && $entrypoint != *\\* && /$entrypoint/ != */../* && /$entrypoint/ != */./* ]] || { echo "Unsafe entrypoint: $entrypoint"; return 1; }
+    [[ -s $extracted/$entrypoint ]] || { echo "Missing nonempty entrypoint: $entrypoint"; return 1; }
+  done < "$logs/entrypoints.txt"
+}
+
+failures=0
+printf 'Packaging %s repositories with %s\n' "${#repositories[@]}" "$cli"
+for repository in "${repositories[@]}"; do
+  name=${repository#*/}
+  logs="$work/$name"
+  directory="$logs/repository"
+  home="$logs/home"
+  stage=clone
+  mkdir -p "$home"
+  echo "Packaging $repository"
+  if package_repository; then
+    printf 'PASS %s\n' "$repository" | tee -a "$work/summary.log"
+  else
+    printf 'FAIL %s (%s); logs: %s\n' "$repository" "$stage" "$logs" | tee -a "$work/summary.log" >&2
+    failures=$((failures + 1))
+  fi
+done
+printf '%s/%s repositories packaged successfully\n' "$((${#repositories[@]} - failures))" "${#repositories[@]}"
+(( failures == 0 )) || exit 1
+rm -rf -- "$work"

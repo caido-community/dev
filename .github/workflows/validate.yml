@@ -16,6 +16,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    env:
+      MISE_ENV: dev
 
     steps:
       - name: Checkout project

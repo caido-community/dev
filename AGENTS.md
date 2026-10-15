@@ -37,25 +37,26 @@ The package declares:
 - Node.js `>=20`
 - pnpm `>=9`
 
-Use Mise for repository tasks. `.mise/config.toml` pins the tools, including Node.js `24`, pnpm `10.20.0`, Rust, the WASM target, wasm-bindgen CLI, and cargo-deny. Task definitions are executable scripts under `.mise/tasks/` (for example, `.mise/tasks/format/dev` defines `format:dev`).
+Use Mise for repository tasks. `.mise/config.toml` and `.mise/mise.lock` pin the shared tools used for both development and community plugin testing: Node.js `24`, pnpm `10.20.0`, Rust `1.99.0` with the `wasm32-unknown-unknown` target, and wasm-bindgen CLI `0.2.104`. `.mise/config.dev.toml` and `.mise/mise.dev.lock` add cargo-deny `0.19.1` and zizmor `1.30.1`; `.mise/config.community.toml` and `.mise/mise.community.lock` separately add jq and ouch. Environments are opt-in: use `mise --env dev` for the full development toolset, or set `MISE_ENV=dev`. A task suffix such as `:dev` does not activate that environment. Shared build/test tasks still work without an environment. Task definitions are executable scripts under `.mise/tasks/` (for example, `.mise/tasks/format/dev` defines `format:dev`).
 
-CI uses the same Mise tools on Ubuntu and Windows. The published package still supports Node.js 20 and pnpm 9, so avoid introducing runtime behavior requiring newer versions without updating the package engines.
+Validation CI uses `MISE_ENV=dev` on Ubuntu and Windows, and publishing uses it for the Rust audit. The published package still supports Node.js 20 and pnpm 9, so avoid introducing runtime behavior requiring newer versions without updating the package engines.
 
 ## Common commands
 
 Run from the repository root:
 
-- `mise install` — install the pinned tools and WASM target.
+- `mise --env dev install --locked` — install shared tools, the WASM target, and dev audit tools from their lockfiles.
 - `mise exec -- pnpm install` — install dependencies.
 - `mise run build:dev` — build JavaScript and Rust/WASM into `dist/`.
 - `mise run typecheck:dev` — run TypeScript with `--noEmit`.
 - `mise run test` — build first, then run Vitest once (never watch).
+- `mise --env community run test-community` — Linux-only, opt-in Bash integration test: package every unique `caido-community` repository in the live store with this checkout's CLI, curl/jq/Git/pnpm, and ouch archive checks. Install extra tools with `mise --env community install --locked`; `.mise/config.community.toml` and `.mise/mise.community.lock` isolate jq/ouch from normal CI. Runs third-party install/build code; use a disposable environment. Use `-- --repository caido-community/name` for one listed repository; failures retain temporary clones and logs.
 - `mise run format:dev` — format supported repository files with Oxfmt and format Rust.
 - `mise run format:prod` — check Oxfmt and Rust formatting without modifying files.
 - `mise run lint:dev` — apply safe Oxlint fixes, including Deslop rules.
 - `mise run lint:prod` — check Oxlint and Deslop rules without modifying files.
-- `mise run audit:dev` — run cargo-deny checks.
-- `mise run zizmor` — audit GitHub Actions workflows (single check-only task; set `GH_TOKEN` for online audits).
+- `mise --env dev run audit:dev` — run cargo-deny checks (both audit variants require the dev environment).
+- `mise --env dev run zizmor` — audit GitHub Actions workflows (single check-only task; set `GH_TOKEN` for online audits).
 - `mise run knip:dev` — check unused code and dependencies. `knip.json` lists Oxfmt as a tooling dependency because it is invoked only by the Mise shell tasks.
 - `mise run cli:dev -- build [path]` — run the CLI directly from TypeScript.
 - `mise run cli:dev -- watch [path]` — run the watch command directly from TypeScript.
@@ -211,7 +212,7 @@ Before finishing a non-trivial change, try to run:
 2. `mise run typecheck:prod`
 3. `mise run test`
 4. `mise run format:prod`
-5. `mise run audit:prod`
+5. `mise --env dev run audit:prod`
 6. `mise run knip:prod`
 7. `mise run lint:prod`
 
