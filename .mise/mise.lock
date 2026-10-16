@@ -41,44 +41,33 @@ checksum = "sha256:0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e
 url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip"
 
 [[tools.pnpm]]
-version = "10.20.0"
+version = "11.18.0"
 backend = "aqua:pnpm/pnpm"
-specifiers = ["10.20.0"]
+specifiers = ["11.18.0"]
 
 [tools.pnpm."platforms.linux-arm64"]
-checksum = "sha256:4764bda31f770121b8ff3cd5edfb1ed24afa16046b992fd00028150bf080fbff"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-linux-arm64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767762"
-
-[tools.pnpm."platforms.linux-arm64-musl"]
-checksum = "sha256:4764bda31f770121b8ff3cd5edfb1ed24afa16046b992fd00028150bf080fbff"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-linux-arm64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767762"
+checksum = "sha256:f9c09bb564421d9d39dfff60af41df88a4864af5637afdabe5f54d12853f8426"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764733"
+provenance = "github-attestations"
 
 [tools.pnpm."platforms.linux-x64"]
-checksum = "sha256:d25defac8655080add042decfa94b5c3b28cafbb048edd4de6dc2c41f9220418"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-linux-x64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767766"
-
-[tools.pnpm."platforms.linux-x64-musl"]
-checksum = "sha256:d25defac8655080add042decfa94b5c3b28cafbb048edd4de6dc2c41f9220418"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-linux-x64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767766"
+checksum = "sha256:f4e62794c56f7a1ad01097f94b90ca95680080aa2e83ebc3d0a751fb8aa8e4ad"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764737"
+provenance = "github-attestations"
 
 [tools.pnpm."platforms.macos-arm64"]
-checksum = "sha256:6ce67b7b237b349fbb27a1f52fe0b3d6d754679fec2b31c9db98e134599f1371"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-macos-arm64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767761"
-
-[tools.pnpm."platforms.macos-x64"]
-checksum = "sha256:0f2ae7764d119f02a1a608583237e469ada97866ba56c9f8f369fac5863b2446"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-macos-x64"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767767"
+checksum = "sha256:c3ace80f45e3550503310c2669616602f2c514f46a2f475f481088887a55abc1"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764741"
+provenance = "github-attestations"
 
 [tools.pnpm."platforms.windows-x64"]
-checksum = "sha256:f0dbd1634d1252d6225978935ec86716dee3f07440f0273c7582c6bc9f54756d"
-url = "https://github.com/pnpm/pnpm/releases/download/v10.20.0/pnpm-win-x64.exe"
-url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/309767760"
+checksum = "sha256:16cc9dbbf86f723936eb9aa5dd37f9d13bdb2068fc7319162236c86746706249"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-win32-x64.zip"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764734"
+provenance = "github-attestations"
 
 [[tools.rust]]
 version = "1.99.0"

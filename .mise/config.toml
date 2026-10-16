@@ -1,5 +1,5 @@
 [tools]
 node = '24'
-pnpm = '10.20.0'
+pnpm = '11.18.0'
 rust = { version = '1.99.0', targets = ['wasm32-unknown-unknown'] }
 'cargo:wasm-bindgen-cli' = '0.2.104'
