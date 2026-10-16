@@ -8,11 +8,7 @@ import { Glob } from "glob";
 import { type WebSocket, WebSocketServer } from "ws";
 
 import { loadConfig } from "../config";
-import {
-  type ConnectedMessage,
-  type ErrorMessage,
-  type RebuildMessage,
-} from "../types";
+import { type ConnectedMessage, type ErrorMessage, type RebuildMessage } from "../types";
 import { logError, logInfo, slash } from "../utils";
 
 import { build } from "./build";
@@ -95,9 +91,7 @@ export async function watch(options: { path?: string; config?: string }) {
   }
 
   // Watch for changes
-  const watchPatterns = config.plugins.map((plugin) =>
-    path.join(cwd, plugin.root, "**/*"),
-  );
+  const watchPatterns = config.plugins.map((plugin) => path.join(cwd, plugin.root, "**/*"));
   const watchFiles = await Promise.all(
     watchPatterns.map(async (pattern) => {
       const files = [];

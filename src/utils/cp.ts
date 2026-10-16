@@ -1,29 +1,33 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import { Glob } from "glob";
 
-/**
- * Copies a file or directory from the source to the destination.
- * Supports glob patterns.
- * @param cwd - The current working directory.
- * @param src - The source glob pattern.
- * @param dest - The destination directory.
- */
-export function cp(cwd: string, src: string, dest: string) {
-  const glob = new Glob(src, { cwd });
-
-  for (const file of glob) {
-    const fileSrc = path.join(cwd, file);
-
-    // If the source is a file, we need to copy it to the destination.
-    // Otherwise, we need to copy the entire directory content.
-    let fileDest = dest;
-    if (fs.statSync(fileSrc).isFile()) {
-      const fileName = path.basename(file);
-      fileDest = path.join(dest, fileName);
+/** Enumerate copy inputs without choosing package destinations or writing files. */
+export async function expandPackageAssets(
+  cwd: string,
+  pattern: string,
+  checkedSource: (source: string) => Promise<string>,
+): Promise<{ source: string; relative: string }[]> {
+  const files: { source: string; relative: string }[] = [];
+  async function collect(source: string, relative: string): Promise<void> {
+    const file = await checkedSource(source);
+    const stats = await fs.stat(file);
+    if (stats.isDirectory()) {
+      for (const child of await fs.readdir(file)) {
+        await collect(path.join(source, child), relative ? `${relative}/${child}` : child);
+      }
+    } else if (stats.isFile()) {
+      files.push({ source: file, relative });
+    } else {
+      throw new Error(`Unsupported package source: ${source}`);
     }
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins
-    fs.cpSync(fileSrc, fileDest, { recursive: true });
   }
+  // Match recursive copy semantics: files use their basename; directories copy contents.
+  for (const match of new Glob(pattern, { cwd })) {
+    const source = path.resolve(cwd, match);
+    const file = await checkedSource(source);
+    await collect(source, (await fs.stat(file)).isFile() ? path.basename(match) : "");
+  }
+  return files;
 }

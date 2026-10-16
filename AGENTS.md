@@ -37,24 +37,32 @@ The package declares:
 - Node.js `>=20`
 - pnpm `>=9`
 
-If using Mise, this repository currently pins:
+Use Mise for repository tasks. `.mise/config.toml` and `.mise/mise.lock` pin the shared tools used for both development and community plugin testing: Node.js `24`, pnpm `11.18.0`, Rust `1.99.0` with the `wasm32-unknown-unknown` target, and wasm-bindgen CLI `0.2.104`. `.mise/config.dev.toml` and `.mise/mise.dev.lock` add cargo-deny `0.19.1` and zizmor `1.30.1`; `.mise/config.community.toml` and `.mise/mise.community.lock` separately add jq and ouch. Environments are opt-in: use `mise --env dev` for the full development toolset, or set `MISE_ENV=dev`. A task suffix such as `:dev` does not activate that environment. Shared build/test tasks still work without an environment. Task definitions are executable scripts under `.mise/tasks/` (for example, `.mise/tasks/format/dev` defines `format:dev`).
 
-- Node.js `24`
-- pnpm `10.20.0`
-
-CI validates with Node.js 20 and pnpm 9, so avoid relying on behavior that only works on newer tool versions unless the engine and CI configuration are updated together.
+Validation CI uses `MISE_ENV=dev` on Ubuntu and Windows, and publishing uses it for the Rust audit. The published package still supports Node.js 20 and pnpm 9, so avoid introducing runtime behavior requiring newer versions without updating the package engines.
 
 ## Common commands
 
 Run from the repository root:
 
-- `pnpm install` — install dependencies.
-- `pnpm build` — build the CLI/library with tsup into `dist/`.
-- `pnpm typecheck` — run TypeScript with `--noEmit`.
-- `pnpm test` — build first, then run Vitest playground tests.
-- `pnpm lint` — run ESLint with autofix over `src` and `playgrounds`.
-- `pnpm dev -- build [path]` — run the CLI directly from TypeScript.
-- `pnpm dev -- watch [path]` — run the watch command directly from TypeScript.
+- `mise --env dev install --locked` — install shared tools, the WASM target, and dev audit tools from their lockfiles.
+- `mise exec -- pnpm install` — install dependencies.
+- `mise run build:dev` — build JavaScript and Rust/WASM into `dist/`.
+- `mise run typecheck:dev` — run TypeScript with `--noEmit`.
+- `mise run test` — build first, then run Vitest once (never watch).
+- `mise --env community run test-community` — Linux-only, opt-in Bash integration test: package every unique `caido-community` repository in the live store with this checkout's CLI, curl/jq/Git/pnpm, and ouch archive checks. Install extra tools with `mise --env community install --locked`; `.mise/config.community.toml` and `.mise/mise.community.lock` isolate jq/ouch from normal CI. Runs third-party install/build code; use a disposable environment. Use `-- --repository caido-community/name` for one listed repository; failures retain temporary clones and logs.
+- `mise run format:dev` — format supported repository files with Oxfmt and format Rust.
+- `mise run format:prod` — check Oxfmt and Rust formatting without modifying files.
+- `mise run lint:dev` — apply safe Oxlint fixes, including Deslop rules.
+- `mise run lint:prod` — check Oxlint and Deslop rules without modifying files.
+- `mise --env dev run audit:dev` — run cargo-deny checks (both audit variants require the dev environment).
+- `mise --env dev run zizmor` — audit GitHub Actions workflows (single check-only task; set `GH_TOKEN` for online audits).
+- `mise run knip:dev` — check unused code and dependencies. `knip.json` lists Oxfmt as a tooling dependency because it is invoked only by the Mise shell tasks.
+- `mise run cli:dev -- build [path]` — run the CLI directly from TypeScript.
+- `mise run cli:dev -- watch [path]` — run the watch command directly from TypeScript.
+- `mise run cli:prod -- build [path]` — build and run the packaged CLI.
+
+CI uses `:prod` variants; build, typecheck, audit, and knip perform the same work in both variants. Linting and formatting are separate checks. Oxlint enables the full Deslop recommended configuration, including type-aware rules through `oxlint-tsgolint`; optional Deslop rules are not enabled. Keep Oxlint aligned with Deslop's exact `@oxlint/plugins` version. Development requires Node.js 20.19+ or 22.12+ for the Oxc tools (Mise supplies Node.js 24); the published CLI still supports Node.js 20. `test` has no variants and depends on `build:prod`.
 
 Do not start long-running watch/dev processes unless explicitly requested. If you do run one, use a timeout or clearly tell the user it will keep running.
 
@@ -64,8 +72,8 @@ Tests live under `playgrounds/**/*.spec.ts`.
 
 The Vitest setup in `playgrounds/setup.ts` installs dependencies in the relevant playground and runs the built CLI against that fixture. Because of this:
 
-- `pnpm test` can be slower than a typical unit test run.
-- `pnpm test` requires a successful `pnpm build` first; the script handles this automatically.
+- `mise run test` can be slower than a typical unit test run.
+- `mise run test` requires a successful `build:prod` first; the task dependency handles this automatically.
 - Tests may generate `dist/`, `node_modules/`, and other build artifacts inside playground directories.
 - Do not commit generated playground artifacts unless intentionally changing fixtures.
 
@@ -111,17 +119,14 @@ The normal build flow is:
    - `workflow` is represented in config but currently has no build implementation.
 4. Bundle build outputs and `README.md` into `dist/plugin_package/`:
    - `README.md` is always included from the project root (path is not configurable).
-   - URL-bearing nodes in `README.md` are parsed using `remark` AST parsing. Handled node types:
-     - `image` (`![alt](path)`)
-     - `link` (`[text](path)`)
-     - `definition` (`[ref]: path` for reference-style images/links)
-     - `html` (raw HTML `<img src="...">` and `<a href="...">` attributes)
+   - Comrak parses `README.md` in Rust/WASM. Image and link URLs are transformed in its syntax tree; reference-style uses are resolved into ordinary image/link nodes. Raw HTML URL attributes are transformed using html5ever tokenization and serialization.
+   - Comrak serializes the transformed tree as Markdown. Formatting is normalized, reference-style uses may become inline links/images, and unused definitions disappear.
    - External URLs (`http://`, `https://`) trigger a warning and have their URLs removed (set to empty string) to prevent loading external resources.
    - `data:` URIs are preserved as-is (self-contained content).
    - Fragment-only links (`#anchor`) are preserved as same-document anchors.
-   - Local image references are converted to compressed WebP `data:` URIs using `sharp`.
+   - Local PNG, JPEG, GIF, and WebP image references are decoded and resized in Rust/WASM, then converted to lossy WebP `data:` URIs with the prebuilt `@jsquash/webp` WASM encoder. GIFs within 1600×1600 pixels and 100 KiB are inlined unchanged to preserve animation; larger GIFs and animated WebP use first-frame WebP conversion. SVG, AVIF, and TIFF are unsupported.
    - Local non-image links are left unchanged.
-   - Inlined images must fit within the documented per-image compression limit (about 125 KiB), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
+   - Inlined images must fit within the documented per-image compression limit (100 KiB before base64 encoding), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
    - Existing build output bundling logic for frontend/backend plugins remains unchanged.
 5. Create and validate `manifest.json` for the bundled frontend/backend outputs; README image inlining does not add manifest entries.
 6. Zip the package as `dist/plugin_package.zip`.
@@ -132,14 +137,14 @@ If you change any part of this flow, update tests and documentation accordingly.
 
 - `README.md` is mandatory; the build will fail if it is missing from the project root.
 - Local image references in `README.md` are converted to compressed WebP `data:` URIs during packaging.
-- Transformation is applied to image URLs found in `image`, `link`, and `definition` markdown nodes, as well as `src` attributes inside raw `html` nodes.
+- Transformation is applied to image URLs in Markdown image/link nodes, including resolved reference-style uses, and URL-bearing attributes inside raw HTML.
 - Local non-image links in markdown and raw HTML are left unchanged.
 - External URLs (`http://`, `https://`) trigger a warning message and have their URL removed (set to empty string for markdown nodes, emptied attribute value for HTML) to prevent loading external resources in the plugin package.
 - `data:` URIs are preserved as-is because they are self-contained.
 - Fragment-only links (e.g., `#purpose`) are preserved as same-document anchors and are not rewritten.
-- README images are compressed with `sharp`; each compressed image must fit under the documented per-image limit (about 125 KiB), and the final transformed README must fit under the documented overall size limit (about 2 MiB).
-- `remark` and `unist-util-visit` are used for robust markdown parsing of `README.md`; do not replace with regex-based approaches. Raw HTML is parsed with `parse5` before `src`/`href` attributes are rewritten.
-- `unist-util-visit` does not support async visitors, so nodes are collected first and then processed sequentially so image compression can `await`.
+- Rust/WASM decodes and resizes README images within 1600×1600 pixels without enlargement. Rust orchestrates conversion, supplies typed RGBA image metadata and encoder options to a TypeScript callback, and creates base64 data URIs. Rust selects lossy WebP quality starting at 80 with method 6 and retries in steps of 10 down to quality 20; the callback only initializes and invokes `@jsquash/webp`. Inputs are capped at 40 million pixels, encoded images at 100 KiB, and transformed README content at 2 MiB. Images that still exceed the byte limit fail packaging.
+- Comrak AST parsing/serialization and html5ever tokenization/serialization handle README transformations; do not replace these libraries with regex-based or custom source-scanning approaches. Preserve rendered Markdown structure and inline HTML boundaries; exact source formatting is not preserved.
+- The TypeScript adapter performs filesystem containment checks, reads local assets, and loads the encoder WASM from the installed `@jsquash/webp` dependency using `createRequire.resolve` and filesystem reads (not file-URL fetch). Image decoding/resizing and URL transformation run in Rust/WASM. Tests use checked-in image fixtures, without a PNG generator or test-only image-processing dependency. Focus on README packaging, conversion to smaller WebP output for representative inputs, resizing, size limits, and path/URL handling rather than testing the image crate's codec implementations.
 
 ## Manifest and config changes
 
@@ -171,7 +176,7 @@ When adding or modifying commands:
 - Do not hand-edit lockfile content.
 - Avoid adding dependencies for small utilities that are easy to implement locally.
 - Prefer dependencies that work in ESM and support the declared Node.js version.
-- `remark` and `unist-util-visit` are used for robust markdown parsing of `README.md` to extract asset references; do not replace with regex-based approaches.
+- Comrak and html5ever provide robust README parsing and serialization in Rust/WASM; prefer their APIs over custom parsing or source rewriting.
 - Do not hardcode secrets or tokens. The npm auth token belongs in environment configuration, not source files.
 
 ## Generated files and artifacts
@@ -203,10 +208,13 @@ Keep documentation examples compatible with pnpm and the published `caido-dev` b
 
 Before finishing a non-trivial change, try to run:
 
-1. `pnpm build`
-2. `pnpm typecheck`
-3. `pnpm test`
-4. `pnpm lint`
+1. `mise run build:prod`
+2. `mise run typecheck:prod`
+3. `mise run test`
+4. `mise run format:prod`
+5. `mise --env dev run audit:prod`
+6. `mise run knip:prod`
+7. `mise run lint:prod`
 
 If you cannot run a command, state why and describe the risk.
 

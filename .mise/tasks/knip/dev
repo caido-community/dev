@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Check for unused code and dependencies locally"
+set -euo pipefail
+
+pnpm exec knip

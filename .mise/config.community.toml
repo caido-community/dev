@@ -1,0 +1,4 @@
+# Opt-in Linux integration tools: mise --env community install --locked
+[tools]
+'aqua:jqlang/jq' = '1.8.1'
+'github:ouch-org/ouch' = '0.6.1'

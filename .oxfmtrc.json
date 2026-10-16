@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/coverage/**",
+    "rust/**",
+    "pnpm-lock.yaml",
+    "playgrounds/**/README.md",
+    "playgrounds/**/assets/**"
+  ]
+}

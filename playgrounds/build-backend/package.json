@@ -2,12 +2,12 @@
   "name": "build-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "keywords": [],
+  "license": "ISC",
   "author": {
     "name": "Caido Labs Inc.",
     "email": "hello@caido.com",
     "url": "https://caido.com"
   },
-  "license": "ISC"
+  "main": "index.js"
 }

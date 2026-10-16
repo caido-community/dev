@@ -1,34 +1,6 @@
-import type { Manifest, ManifestPlugin } from "@caido/plugin-manifest";
+import { validateManifest } from "@caido/plugin-manifest";
 
-import { type CaidoConfig } from "./types";
-
-export function createManifest(options: { config: CaidoConfig }): Manifest {
-  const { config } = options;
-  return {
-    id: config.id,
-    name: config.name,
-    version: config.version,
-    description: config.description,
-    author: {
-      name: config.author.name,
-      email: config.author?.email,
-      url: config.author?.url,
-    },
-    links: {
-      sponsor: config.links?.sponsor,
-    },
-    plugins: [],
-  };
-}
-
-export function defineFrontendPluginManifest(
-  pluginManifest: Extract<ManifestPlugin, { kind: "frontend" }>,
-) {
-  return pluginManifest;
-}
-
-export function defineBackendPluginManifest(
-  pluginManifest: Extract<ManifestPlugin, { kind: "backend" }>,
-) {
-  return pluginManifest;
+/** Validate Rust's assembled manifest against Caido's published schema. */
+export function validatePackageManifest(manifest: string): boolean {
+  return validateManifest(JSON.parse(manifest));
 }

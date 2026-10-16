@@ -1,123 +1,102 @@
-import fs from "fs/promises";
-import path from "path";
+import fs from "node:fs/promises";
+import path from "node:path";
 
-import { validateManifest } from "@caido/plugin-manifest";
-import JSZip from "jszip";
+import { z } from "zod";
 
-import { createManifest } from "../manifest";
+import { validatePackageManifest } from "../manifest";
 import type { BuildOutput, CaidoConfig } from "../types";
-import { addDirectoryToZip, logInfo, logSuccess } from "../utils";
+import { logInfo, logSuccess } from "../utils";
+import { expandPackageAssets } from "../utils/cp";
+import { wasm } from "../wasm";
 
-import { bundleBackendPlugin } from "./backend";
-import { bundleFrontendPlugin } from "./frontend";
-import { transformReadmeImages } from "./readme-assets";
+import { encodeImage, readAsset } from "./readme-assets";
 
-/**
- * Creates the dist directories.
- * @param cwd - The current working directory.
- * @returns The dist directory and the plugin package directory.
- */
-async function createDistDirectories(cwd: string) {
-  const distDir = path.resolve(cwd, "dist");
-  await fs.rm(distDir, {
-    recursive: true,
-    force: true,
-  });
+const fileErrorSchema = z.object({ code: z.string() });
 
-  const pluginPackageDir = path.join(distDir, "plugin_package");
-  await fs.mkdir(pluginPackageDir, { recursive: true });
-
-  return {
-    distDir,
-    pluginPackageDir,
-  };
+function normalized(file: string): string {
+  return process.platform === "win32" ? file.toLowerCase() : file;
 }
 
-/**
- * Bundles the plugin package.
- * @param options - The options.
- * @param options.cwd - The current working directory.
- * @param options.packageJson - The root package.json.
- * @param options.buildOutputs - The build outputs.
- * @returns The plugin package.
- */
+function contains(root: string, file: string): boolean {
+  const relative = path.relative(normalized(root), normalized(file));
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
 export async function bundlePackage(options: {
   cwd: string;
   buildOutputs: BuildOutput[];
   config: CaidoConfig;
 }): Promise<void> {
+  const { config, buildOutputs } = options;
+  const cwd = await fs.realpath(options.cwd);
+  const distDir = path.join(cwd, "dist");
   logInfo("Bundling plugin package");
-  const { cwd, buildOutputs, config } = options;
 
-  // Create dist directories
-  const { distDir, pluginPackageDir } = await createDistDirectories(cwd);
+  async function checkOutput(): Promise<void> {
+    try {
+      const stats = await fs.lstat(distDir);
+      if (
+        stats.isSymbolicLink() ||
+        !stats.isDirectory() ||
+        normalized(await fs.realpath(distDir)) !== normalized(distDir)
+      ) {
+        throw new Error(
+          "Package output directory must be a real directory inside the project root",
+        );
+      }
+    } catch (error) {
+      if (fileErrorSchema.safeParse(error).data?.code !== "ENOENT") throw error;
+    }
+    for (const plugin of config.plugins) {
+      const root = path.resolve(cwd, plugin.root);
+      const realRoot = await fs.realpath(root);
+      if (contains(distDir, root) || contains(distDir, realRoot)) {
+        throw new Error("Plugin roots must not be inside the package output directory");
+      }
+    }
+  }
+  await checkOutput();
 
-  // Copy README.md (always included, always at root)
-  const readmePath = path.join(cwd, "README.md");
-  try {
-    await fs.access(readmePath);
-  } catch {
-    throw new Error("README.md is required but not found in project root");
+  async function checkedSource(source: string): Promise<string> {
+    const file = path.resolve(cwd, source);
+    const stats = await fs.lstat(file);
+    const realFile = await fs.realpath(file);
+    if (stats.isSymbolicLink() || !contains(cwd, file) || !contains(cwd, realFile)) {
+      throw new Error(`Package source path escapes project root or is a symbolic link: ${source}`);
+    }
+    return realFile;
   }
 
-  // Inline local README images and remove external README URLs.
-  const transformedReadme = await transformReadmeImages(readmePath);
-
-  // Write transformed README to package directory
-  const readmeDest = path.join(pluginPackageDir, "README.md");
-  await fs.writeFile(readmeDest, transformedReadme);
-
-  // Create manifest
-  const manifest = createManifest({ config });
-
-  // Copy build outputs to dist directory
-  for (const buildOutput of buildOutputs) {
-    switch (buildOutput.kind) {
-      case "frontend":
-        manifest.plugins.push(
-          bundleFrontendPlugin(cwd, pluginPackageDir, buildOutput),
-        );
-        break;
-      case "backend":
-        manifest.plugins.push(
-          bundleBackendPlugin(cwd, pluginPackageDir, buildOutput),
-        );
-        break;
+  async function readFile(source: string): Promise<Buffer> {
+    try {
+      return await fs.readFile(await checkedSource(source));
+    } catch (error) {
+      if (source === "README.md" && fileErrorSchema.safeParse(error).data?.code === "ENOENT") {
+        throw new Error("README.md is required but not found in project root");
+      }
+      throw error;
     }
   }
 
-  // Assert that the manifest is valid
-  if (!validateManifest(manifest)) {
-    throw new Error(
-      "Manifest is not valid:" + JSON.stringify(manifest, null, 2),
-    );
+  const result = await wasm.package_plugin(
+    JSON.stringify({ config, buildOutputs }),
+    readFile,
+    (pattern) => expandPackageAssets(cwd, pattern, checkedSource),
+    (pathname, url) => readAsset(cwd, pathname, url),
+    encodeImage,
+    validatePackageManifest,
+  );
+  for (const message of result.messages) logInfo(message);
+  // All input reads, destination checks, validation, and ZIP creation finish before deletion.
+  await checkOutput();
+  await fs.rm(distDir, { recursive: true, force: true });
+  const packageDir = path.join(distDir, "plugin_package");
+  await fs.mkdir(packageDir, { recursive: true });
+  for (const file of result.files) {
+    const destination = path.join(packageDir, file.path);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.writeFile(destination, file.bytes);
   }
-
-  // Write manifest to dist directory
-  const manifestPath = path.join(pluginPackageDir, "manifest.json");
-  const manifestContent = JSON.stringify(manifest, null, 2);
-  await fs.writeFile(manifestPath, manifestContent);
-
-  // Generate zip file
-  const zip = new JSZip();
-
-  // Zip all the contents of the plugin package directory
-  await addDirectoryToZip(zip, pluginPackageDir);
-
-  // Write zip file to dist directory
-  const zipPath = path.join(distDir, "plugin_package.zip");
-  const zipFile = await fs.open(zipPath, "w");
-  await new Promise<void>((resolve, reject) => {
-    zip
-      .generateNodeStream({
-        type: "nodebuffer",
-        streamFiles: true,
-      })
-      .pipe(zipFile.createWriteStream())
-      .on("finish", () => {
-        logSuccess("Plugin package zip file created successfully");
-        resolve();
-      })
-      .on("error", reject);
-  });
+  await fs.writeFile(path.join(distDir, "plugin_package.zip"), result.zip);
+  logSuccess("Plugin package zip file created successfully");
 }

@@ -1,0 +1,33 @@
+name: Test community plugins
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-community:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      MISE_ENV: community
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Mise tools
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          working_directory: .
+          version: ${{ vars.CI__MISE_VERSION }}
+          install_args: --locked
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package community plugins
+        run: mise run test-community
