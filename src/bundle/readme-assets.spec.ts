@@ -8,6 +8,8 @@ import { compressImageToWebpDataUri, transformReadmeImages } from "./readme-asse
 const imageFixture = (name: string) => new URL(`./__fixtures__/images/${name}`, import.meta.url);
 
 const DATA_URI_PREFIX = "data:image/webp;base64,";
+const PNG_DATA_URI = `data:image/png;base64,${(await fs.readFile(imageFixture("red16x16.png"))).toString("base64")}`;
+const GIF_BYTES = await fs.readFile(imageFixture("animated.gif"));
 const MAX_INLINED_IMAGE_BYTES = 100 * 1024;
 const itUnix = process.platform === "win32" ? it.skip : it;
 const itWindows = process.platform === "win32" ? it : it.skip;
@@ -182,7 +184,7 @@ describe("transformReadmeImages", () => {
       [
         "<IMG SRC=local-image.png ALT='Local image'>",
         "<a HREF=https://example.com/docs>External docs</a>",
-        "<img src=data:image/png;base64,abc123 alt='Data image'>",
+        `<img src=${PNG_DATA_URI} alt='Data image'>`,
         "<a href=#section>Section</a>",
         'before <a href="#foo">click</a> after',
         'before <a href="java&#x09;script:alert(1)">unsafe</a> after',
@@ -193,7 +195,7 @@ describe("transformReadmeImages", () => {
 
     expect(content).toContain('src="data:image/webp;base64,');
     expect(content).toContain('href=""');
-    expect(content).toContain('src="data:image/png;base64,abc123"');
+    expect(content).toContain(`src="${PNG_DATA_URI}"`);
     expect(content).toContain('href="#section"');
     expect(content).toContain('before <a href="#foo">click</a> after');
     expect(content).toContain('before <a href="">unsafe</a> after');
@@ -232,22 +234,59 @@ describe("transformReadmeImages", () => {
     expect(content).toContain("[Fragment](#section)");
   });
 
-  it("preserves data image URIs only in image contexts", async () => {
-    await fs.writeFile(
-      path.join(tempDir, "README.md"),
-      [
-        "![Data Image](data:image/png;base64,abc123)",
-        "[Data Link](data:image/png;base64,abc123)",
-        "![Data SVG](data:image/svg+xml;base64,abc123)",
-      ].join("\n"),
-    );
-
-    const content = await transformReadmeImages(path.join(tempDir, "README.md"));
-
-    expect(content).toContain("![Data Image](data:image/png;base64,abc123)");
-    expect(content).toContain("[Data Link]()");
-    expect(content).toContain("![Data SVG]()");
-  });
+  it.each([
+    { name: "PNG", uri: PNG_DATA_URI, preserved: true },
+    {
+      name: "MIME parameters and mixed case",
+      uri: PNG_DATA_URI.replace("data:image/png;base64", "DATA:IMAGE/PNG;charset=utf-8;BASE64"),
+      preserved: true,
+    },
+    { name: "GIF animation", fixture: "animated.gif", mime: "gif", preserved: true },
+    {
+      name: "truncated GIF",
+      uri: `data:image/gif;base64,${GIF_BYTES.subarray(0, 30).toString("base64")}`,
+      preserved: false,
+    },
+    { name: "fake image", uri: "data:image/png;base64,abc123", preserved: false },
+    { name: "invalid base64", uri: "data:image/png;base64,%%%", preserved: false },
+    { name: "invalid UTF-8 bytes", uri: "data:image/png;base64,//4=", preserved: false },
+    {
+      name: "MIME mismatch",
+      uri: PNG_DATA_URI.replace("image/png", "image/jpeg"),
+      preserved: false,
+    },
+    {
+      name: "truncated image",
+      uri: `data:image/png;base64,${Buffer.from(PNG_DATA_URI.split(",")[1]!, "base64").subarray(0, 30).toString("base64")}`,
+      preserved: false,
+    },
+    { name: "non-base64", uri: "data:image/png,%89PNG", preserved: false },
+    { name: "SVG", uri: PNG_DATA_URI.replace("image/png", "image/svg+xml"), preserved: false },
+    { name: "AVIF", uri: PNG_DATA_URI.replace("image/png", "image/avif"), preserved: false },
+  ])(
+    "validates existing data images during packaging: $name",
+    async ({ uri, fixture, mime, preserved }) => {
+      const dataUri =
+        uri ??
+        `data:image/${mime};base64,${(await fs.readFile(imageFixture(fixture!))).toString("base64")}`;
+      await fs.writeFile(
+        path.join(tempDir, "README.md"),
+        [
+          `![Data Image](${dataUri})`,
+          `![Repeated](${dataUri})`,
+          `[Data Link](${dataUri})`,
+          `<img src="${dataUri}">`,
+          `<a href="${dataUri}">Link</a>`,
+        ].join("\n\n"),
+      );
+      const content = await transformReadmeImages(path.join(tempDir, "README.md"));
+      expect(content).toContain(preserved ? `![Data Image](${dataUri})` : "![Data Image]()");
+      expect(content).toContain(preserved ? `![Repeated](${dataUri})` : "![Repeated]()");
+      expect(content).toContain(preserved ? `src="${dataUri}"` : 'src=""');
+      expect(content).toContain("[Data Link]()");
+      expect(content).toContain('href=""');
+    },
+  );
 
   it("uses reference-style definition context when handling data image URIs", async () => {
     await fs.writeFile(
@@ -256,20 +295,20 @@ describe("transformReadmeImages", () => {
         "![Image Ref][data-image]",
         "[Link Ref][data-link]",
         "",
-        "[data-image]: data:image/png;base64,abc123",
-        "[data-link]: data:image/png;base64,abc123",
+        `[data-image]: ${PNG_DATA_URI}`,
+        `[data-link]: ${PNG_DATA_URI}`,
         "",
         "![Shared Image][shared] and [Shared Link][shared]",
         "",
-        "[shared]: data:image/png;base64,abc123",
+        `[shared]: ${PNG_DATA_URI}`,
       ].join("\n"),
     );
 
     const content = await transformReadmeImages(path.join(tempDir, "README.md"));
 
-    expect(content).toContain("![Image Ref](data:image/png;base64,abc123)");
+    expect(content).toContain(`![Image Ref](${PNG_DATA_URI})`);
     expect(content).toContain("[Link Ref]()");
-    expect(content).toContain("![Shared Image](data:image/png;base64,abc123)");
+    expect(content).toContain(`![Shared Image](${PNG_DATA_URI})`);
     expect(content).toContain("[Shared Link]()");
     expect(content).not.toContain("[shared]:");
   });

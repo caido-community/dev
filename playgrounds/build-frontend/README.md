@@ -55,4 +55,4 @@ The following images test external URL handling (should be removed):
 
 ![External HTTP](http://example.com/image.png)
 ![External HTTPS](https://example.com/image.png)
-![Data URI](data:image/png;base64,abc123)
+![Data URI](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=)

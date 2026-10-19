@@ -37,6 +37,16 @@ pub async fn bundle_readme(
     read_asset: js_sys::Function,
     encode: js_sys::Function,
 ) -> Result<String, JsValue> {
+    let result = bundle_readme_result(content, read_asset, encode).await?;
+    // Keep the public JSON field order used by existing callers.
+    Ok(serde_json::json!({"content": result.content, "warnings": result.warnings, "messages": result.messages}).to_string())
+}
+
+async fn bundle_readme_result(
+    content: String,
+    read_asset: js_sys::Function,
+    encode: js_sys::Function,
+) -> Result<package::ReadmeResult, JsValue> {
     let assets = readme::assets(&content).map_err(|error| JsValue::from_str(&error))?;
     let urls: Vec<String> =
         serde_json::from_str(&assets).map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -65,10 +75,10 @@ pub async fn bundle_readme(
         &serde_json::Value::Object(replacements).to_string(),
     )
     .map_err(|error| JsValue::from_str(&error))?;
-    let mut result: serde_json::Value = serde_json::from_str(&transformed)
+    let mut result: package::ReadmeResult = serde_json::from_str(&transformed)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    result["messages"] = serde_json::json!(messages);
-    Ok(result.to_string())
+    result.messages = messages;
+    Ok(result)
 }
 
 use wasm_bindgen::prelude::*;

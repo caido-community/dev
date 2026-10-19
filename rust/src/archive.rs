@@ -1,4 +1,4 @@
-use crate::package::safe_component;
+use crate::package::safe_package_path;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::io::{Cursor, Write};
@@ -15,7 +15,7 @@ pub(crate) fn create(input: &str, contents: &[u8]) -> Result<Vec<u8>, String> {
             .get("path")
             .and_then(Value::as_str)
             .ok_or("Expected ZIP entry path string")?;
-        if !path.split('/').all(safe_component) {
+        if !safe_package_path(path) {
             return Err(format!(
                 "Invalid ZIP entry path '{path}': expected a safe relative file path"
             ));
@@ -41,15 +41,42 @@ pub(crate) fn create(input: &str, contents: &[u8]) -> Result<Vec<u8>, String> {
     if total != contents.len() {
         return Err("ZIP entry lengths do not match contents length".into());
     }
+    let entries: Vec<_> = checked
+        .into_iter()
+        .map(|(path, start, end)| (path, &contents[start..end]))
+        .collect();
+    write_entries(&entries)
+}
+
+pub(crate) fn create_files(files: &[crate::package::PackageFile]) -> Result<Vec<u8>, String> {
+    let entries: Vec<_> = files
+        .iter()
+        .map(|file| (file.path.as_str(), file.bytes.as_slice()))
+        .collect();
+    let mut names = HashSet::new();
+    for (path, _) in &entries {
+        if !safe_package_path(path) {
+            return Err(format!(
+                "Invalid ZIP entry path '{path}': expected a safe relative file path"
+            ));
+        }
+        if !names.insert(path.to_ascii_lowercase()) {
+            return Err(format!("Duplicate ZIP entry path '{path}'"));
+        }
+    }
+    write_entries(&entries)
+}
+
+fn write_entries(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, String> {
     // Validate before writing so malformed input cannot yield a partial archive.
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-    for (path, start, end) in checked {
+    for &(path, bytes) in entries {
         writer
             .start_file(path, options)
             .map_err(|e| format!("Could not create ZIP entry '{path}': {e}"))?;
         writer
-            .write_all(&contents[start..end])
+            .write_all(bytes)
             .map_err(|e| format!("Could not write ZIP entry '{path}': {e}"))?;
     }
     writer

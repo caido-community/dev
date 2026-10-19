@@ -1,165 +1,143 @@
+mod wasm;
+
+pub(crate) use wasm::assemble;
+
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use wasm_bindgen::{prelude::*, JsCast};
+use typed_path::{Utf8UnixComponent, Utf8UnixPath, Utf8WindowsPath};
 
-fn error(message: impl AsRef<str>) -> JsValue {
-    JsValue::from_str(message.as_ref())
+#[derive(Serialize)]
+struct PackagePlan {
+    // Supplied manifests retain unknown fields and insertion order. The host's
+    // manifest schema remains authoritative for their validation.
+    manifest: Value,
+    copies: Vec<Copy>,
+    assets: Vec<Asset>,
 }
 
-async fn invoke(callback: &js_sys::Function, argument: &str) -> Result<JsValue, JsValue> {
-    let pending = callback.call1(&JsValue::UNDEFINED, &JsValue::from_str(argument))?;
-    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&pending)).await
+#[derive(Serialize)]
+struct Copy {
+    source: String,
+    destination: String,
 }
 
-fn reserve(
-    path: &str,
-    files: &mut HashSet<String>,
-    directories: &mut HashSet<String>,
-) -> Result<(), JsValue> {
-    if !path.split('/').all(safe_component) {
-        return Err(error(format!("Invalid package destination '{path}'")));
-    }
-    let key = path.to_lowercase();
-    if directories.contains(&key) || !files.insert(key.clone()) {
-        return Err(error(format!("Duplicate package destination '{path}'")));
-    }
-    let mut parent = key.as_str();
-    while let Some((prefix, _)) = parent.rsplit_once('/') {
-        if files.contains(prefix) {
-            return Err(error(format!("Package file/directory collision '{path}'")));
-        }
-        directories.insert(prefix.to_owned());
-        parent = prefix;
-    }
-    Ok(())
+#[derive(Serialize)]
+struct Asset {
+    pattern: String,
+    destination: String,
 }
 
-pub(crate) async fn assemble(
-    input: &str,
-    read_file: js_sys::Function,
-    expand_assets: js_sys::Function,
-    read_asset: js_sys::Function,
-    encode: js_sys::Function,
-    validate_manifest: js_sys::Function,
-) -> Result<JsValue, JsValue> {
-    let planned: Value =
-        serde_json::from_str(&plan(input).map_err(error)?).map_err(|e| error(e.to_string()))?;
-    let manifest = &planned["manifest"];
-    let manifest_text = serde_json::to_string_pretty(manifest).map_err(|e| error(e.to_string()))?;
-    let accepted =
-        validate_manifest.call1(&JsValue::UNDEFINED, &JsValue::from_str(&manifest_text))?;
-    if accepted.as_bool() != Some(true) {
-        return Err(error(format!("Manifest is not valid:{manifest_text}")));
-    }
-    let mut sources: Vec<(String, String)> = Vec::new();
-    let mut files = HashSet::new();
-    let mut directories = HashSet::new();
-    reserve("README.md", &mut files, &mut directories)?;
-    reserve("manifest.json", &mut files, &mut directories)?;
-    for copy in planned["copies"]
-        .as_array()
-        .ok_or_else(|| error("Invalid copies"))?
-    {
-        let destination = string(copy, "destination").map_err(error)?;
-        reserve(destination, &mut files, &mut directories)?;
-        sources.push((
-            destination.to_owned(),
-            string(copy, "source").map_err(error)?.to_owned(),
-        ));
-    }
-    for asset in planned["assets"]
-        .as_array()
-        .ok_or_else(|| error("Invalid assets"))?
-    {
-        let expanded = invoke(&expand_assets, string(asset, "pattern").map_err(error)?).await?;
-        if !js_sys::Array::is_array(&expanded) {
-            return Err(error("Invalid asset expansion"));
+struct ExpandedAsset {
+    relative: String,
+    source: String,
+}
+
+pub(crate) struct PackageFile {
+    pub(crate) path: String,
+    pub(crate) bytes: Vec<u8>,
+}
+
+struct PreparedPackage {
+    files: Vec<PackageFile>,
+    zip: Vec<u8>,
+    messages: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct ReadmeResult {
+    pub(crate) content: String,
+    pub(crate) warnings: Vec<String>,
+    #[serde(default)]
+    pub(crate) messages: Vec<String>,
+}
+
+#[derive(Default)]
+struct PackageSources {
+    copies: Vec<Copy>,
+    files: HashSet<String>,
+    directories: HashSet<String>,
+}
+
+impl PackageSources {
+    fn new(copies: Vec<Copy>) -> Result<Self, String> {
+        let mut sources = Self::default();
+        sources.reserve("README.md")?;
+        sources.reserve("manifest.json")?;
+        for copy in copies {
+            sources.add(copy)?;
         }
-        for item in js_sys::Array::from(&expanded).iter() {
-            let relative = js_sys::Reflect::get(&item, &JsValue::from_str("relative"))?
-                .as_string()
-                .ok_or_else(|| error("Invalid asset relative path"))?;
-            let source = js_sys::Reflect::get(&item, &JsValue::from_str("source"))?
-                .as_string()
-                .ok_or_else(|| error("Invalid asset source"))?;
-            let destination = format!(
-                "{}/{}",
-                string(asset, "destination").map_err(error)?,
-                relative
-            );
-            reserve(&destination, &mut files, &mut directories)?;
-            sources.push((destination, source));
+        Ok(sources)
+    }
+
+    fn reserve(&mut self, path: &str) -> Result<(), String> {
+        if !safe_package_path(path) {
+            return Err(format!("Invalid package destination '{path}'"));
         }
-    }
-    let read_bytes = |value: JsValue| -> Result<Vec<u8>, JsValue> {
-        if !value.is_instance_of::<js_sys::Uint8Array>() {
-            return Err(error("Expected file bytes"));
+        let key = path.to_lowercase();
+        if self.directories.contains(&key) || !self.files.insert(key.clone()) {
+            return Err(format!("Duplicate package destination '{path}'"));
         }
-        Ok(js_sys::Uint8Array::new(&value).to_vec())
-    };
-    let readme = read_bytes(invoke(&read_file, "README.md").await?)?;
-    let content =
-        String::from_utf8(readme).map_err(|e| error(format!("Invalid README.md: {e}")))?;
-    let transformed = crate::bundle_readme(content, read_asset, encode).await?;
-    let transformed: Value =
-        serde_json::from_str(&transformed).map_err(|e| error(e.to_string()))?;
-    let mut entries = vec![
-        (
-            "README.md".to_owned(),
-            string(&transformed, "content")
-                .map_err(error)?
-                .as_bytes()
-                .to_vec(),
-        ),
-        ("manifest.json".to_owned(), manifest_text.into_bytes()),
-    ];
-    for (destination, source) in sources {
-        entries.push((destination, read_bytes(invoke(&read_file, &source).await?)?));
-    }
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let metadata: Vec<Value> = entries
-        .iter()
-        .map(|(path, bytes)| json!({"path":path,"length":bytes.len()}))
-        .collect();
-    let contents: Vec<u8> = entries
-        .iter()
-        .flat_map(|(_, bytes)| bytes.iter().copied())
-        .collect();
-    let zip = crate::archive::create(
-        &serde_json::to_string(&metadata).map_err(|e| error(e.to_string()))?,
-        &contents,
-    )
-    .map_err(error)?;
-    let result = js_sys::Object::new();
-    let output = js_sys::Array::new();
-    for (path, bytes) in entries {
-        let file = js_sys::Object::new();
-        js_sys::Reflect::set(&file, &"path".into(), &path.into())?;
-        js_sys::Reflect::set(
-            &file,
-            &"bytes".into(),
-            &js_sys::Uint8Array::from(bytes.as_slice()),
-        )?;
-        output.push(&file);
-    }
-    let messages = js_sys::Array::new();
-    for key in ["messages", "warnings"] {
-        if let Some(values) = transformed[key].as_array() {
-            for value in values {
-                if let Some(text) = value.as_str() {
-                    messages.push(&text.into());
-                }
+        for parent in Utf8UnixPath::new(&key)
+            .ancestors()
+            .skip(1)
+            .filter(|parent| !parent.as_str().is_empty())
+        {
+            if self.files.contains(parent.as_str()) {
+                return Err(format!("Package file/directory collision '{path}'"));
             }
+            self.directories.insert(parent.as_str().to_owned());
         }
+        Ok(())
     }
-    js_sys::Reflect::set(&result, &"files".into(), &output)?;
-    js_sys::Reflect::set(
-        &result,
-        &"zip".into(),
-        &js_sys::Uint8Array::from(zip.as_slice()),
-    )?;
-    js_sys::Reflect::set(&result, &"messages".into(), &messages)?;
-    Ok(result.into())
+
+    fn add(&mut self, copy: Copy) -> Result<(), String> {
+        self.reserve(&copy.destination)?;
+        self.copies.push(copy);
+        Ok(())
+    }
+
+    fn expand(&mut self, asset: &Asset, expanded: ExpandedAsset) -> Result<(), String> {
+        self.add(Copy {
+            destination: format!("{}/{}", asset.destination, expanded.relative),
+            source: expanded.source,
+        })
+    }
+}
+
+fn package_files(manifest: String, readme: &ReadmeResult) -> Vec<PackageFile> {
+    vec![
+        PackageFile {
+            path: "README.md".into(),
+            bytes: readme.content.as_bytes().to_vec(),
+        },
+        PackageFile {
+            path: "manifest.json".into(),
+            bytes: manifest.into_bytes(),
+        },
+    ]
+}
+
+fn prepare(mut files: Vec<PackageFile>, readme: ReadmeResult) -> Result<PreparedPackage, String> {
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let zip = crate::archive::create_files(&files)?;
+    let mut messages = readme.messages;
+    messages.extend(readme.warnings);
+    Ok(PreparedPackage {
+        files,
+        zip,
+        messages,
+    })
+}
+
+pub(crate) fn safe_package_path(path: &str) -> bool {
+    let parsed = Utf8UnixPath::new(path);
+    !path.is_empty()
+        && parsed.components().all(|component| {
+            matches!(component, Utf8UnixComponent::Normal(name) if safe_component(name))
+        })
+        // Package paths must already be canonical; never silently normalize input.
+        && parsed.normalize().as_str() == path
 }
 
 pub(crate) fn safe_component(id: &str) -> bool {
@@ -221,25 +199,150 @@ fn validate_ids(plugins: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum BuildKind {
+    Frontend,
+    Backend,
+}
+
+struct BuildOutput<'a> {
+    kind: BuildKind,
+    id: &'a str,
+    name: &'a str,
+    file_name: &'a str,
+    css: Option<&'a str>,
+    backend: Option<&'a str>,
+    assets: Vec<&'a str>,
+}
+
+impl<'a> BuildOutput<'a> {
+    fn parse(value: &'a Value) -> Result<Self, String> {
+        let kind = match string(value, "kind")? {
+            "frontend" => BuildKind::Frontend,
+            "backend" => BuildKind::Backend,
+            kind => return Err(format!("Unsupported build output kind '{kind}'")),
+        };
+        let id = string(value, "id")?;
+        let frontend = matches!(kind, BuildKind::Frontend);
+        Ok(Self {
+            kind,
+            id,
+            name: optional_string(value, "name")?.unwrap_or(id),
+            file_name: string(value, "fileName")?,
+            css: if frontend {
+                optional_string(value, "cssFileName")?.filter(|s| !s.is_empty())
+            } else {
+                None
+            },
+            backend: if frontend {
+                optional_string(value, "backendId")?.filter(|s| !s.is_empty())
+            } else {
+                None
+            },
+            assets: value
+                .get("assets")
+                .and_then(Value::as_array)
+                .ok_or("Expected build output assets array")?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .ok_or_else(|| "Expected asset pattern string".into())
+                })
+                .collect::<Result<_, String>>()?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct BackendReference<'a> {
+    id: &'a str,
+}
+
+// Field order matches the existing generated manifest entries.
+#[derive(Serialize)]
+struct ManifestPlugin<'a> {
+    id: &'a str,
+    kind: BuildKind,
+    name: &'a str,
+    entrypoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backend: Option<Option<BackendReference<'a>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assets: Option<String>,
+}
+
 fn copy(
     source: &str,
     id: &str,
-    copies: &mut Vec<Value>,
+    copies: &mut Vec<Copy>,
     destinations: &mut HashSet<String>,
 ) -> Result<String, String> {
-    let basename = source.rsplit(['/', '\\']).next().unwrap_or("");
-    if !safe_component(basename) {
+    // Windows parsing recognizes both separators, independent of the WASM host.
+    let basename = Utf8WindowsPath::new(source).file_name().unwrap_or("");
+    if !safe_component(basename) || !source.ends_with(basename) {
         return Err(format!("Invalid build output filename '{source}'"));
     }
     let destination = format!("{id}/{basename}");
     if !destinations.insert(destination.to_ascii_lowercase()) {
         return Err(format!("Duplicate package destination '{destination}'"));
     }
-    copies.push(json!({"source":source,"destination":destination}));
+    copies.push(Copy {
+        source: source.into(),
+        destination: destination.clone(),
+    });
     Ok(destination)
 }
 
-pub(crate) fn plan(input: &str) -> Result<String, String> {
+fn plan_output(
+    output: BuildOutput<'_>,
+    copies: &mut Vec<Copy>,
+    assets: &mut Vec<Asset>,
+    destinations: &mut HashSet<String>,
+) -> Result<Value, String> {
+    let entrypoint = copy(output.file_name, output.id, copies, destinations)?;
+    let frontend = matches!(output.kind, BuildKind::Frontend);
+    let style = output
+        .css
+        .map(|css| copy(css, output.id, copies, destinations))
+        .transpose()?;
+    let asset_directory = if output.assets.is_empty() {
+        None
+    } else {
+        let destination = format!("{}/assets", output.id);
+        if destinations.contains(&destination.to_ascii_lowercase()) {
+            return Err(format!(
+                "Assets directory collides with package destination '{destination}'"
+            ));
+        }
+        for pattern in output.assets {
+            assets.push(Asset {
+                pattern: pattern.into(),
+                destination: destination.clone(),
+            });
+        }
+        Some(destination)
+    };
+    serde_json::to_value(ManifestPlugin {
+        id: output.id,
+        kind: output.kind,
+        name: output.name,
+        entrypoint,
+        style,
+        backend: frontend.then(|| output.backend.map(|id| BackendReference { id })),
+        runtime: (!frontend).then_some("javascript"),
+        assets: asset_directory,
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn package_plan(input: &str) -> Result<PackagePlan, String> {
+    // Parse only the fields packaging owns; config and supplied manifests may
+    // contain additional fields interpreted by their existing host schemas.
     let input: Value =
         serde_json::from_str(input).map_err(|e| format!("Invalid package input: {e}"))?;
     let config = input
@@ -269,10 +372,10 @@ pub(crate) fn plan(input: &str) -> Result<String, String> {
                 }
             }
             fields.insert(
-                "links".to_owned(),
+                "links".into(),
                 config.get("links").cloned().unwrap_or_else(|| json!({})),
             );
-            fields.insert("plugins".to_owned(), json!([]));
+            fields.insert("plugins".into(), json!([]));
             Value::Object(fields)
         });
     if let Some(id) = manifest.get("id") {
@@ -288,49 +391,24 @@ pub(crate) fn plan(input: &str) -> Result<String, String> {
     let mut assets = Vec::new();
     let mut destinations = HashSet::new();
     for output in outputs {
-        let kind = string(output, "kind")?;
-        if !matches!(kind, "frontend" | "backend") {
-            return Err(format!("Unsupported build output kind '{kind}'"));
-        }
-        let id = string(output, "id")?;
-        let entrypoint = copy(
-            string(output, "fileName")?,
-            id,
+        plugins.push(plan_output(
+            BuildOutput::parse(output)?,
             &mut copies,
+            &mut assets,
             &mut destinations,
-        )?;
-        let mut plugin = json!({"id":id,"kind":kind,"name":optional_string(output,"name")?.unwrap_or(id),"entrypoint":entrypoint});
-        if kind == "frontend" {
-            if let Some(css) = optional_string(output, "cssFileName")?.filter(|v| !v.is_empty()) {
-                plugin["style"] = Value::from(copy(css, id, &mut copies, &mut destinations)?);
-            }
-            plugin["backend"] =
-                match optional_string(output, "backendId")?.filter(|v| !v.is_empty()) {
-                    Some(id) => json!({"id":id}),
-                    None => Value::Null,
-                };
-        } else {
-            plugin["runtime"] = Value::from("javascript");
-        }
-        let patterns = output
-            .get("assets")
-            .and_then(Value::as_array)
-            .ok_or("Expected build output assets array")?;
-        if !patterns.is_empty() {
-            let destination = format!("{id}/assets");
-            if destinations.contains(&destination.to_ascii_lowercase()) {
-                return Err(format!(
-                    "Assets directory collides with package destination '{destination}'"
-                ));
-            }
-            plugin["assets"] = Value::from(destination.clone());
-            for pattern in patterns {
-                assets.push(json!({"pattern":pattern.as_str().ok_or("Expected asset pattern string")?,"destination":destination}));
-            }
-        }
-        plugins.push(plugin);
+        )?);
     }
     validate_ids(&plugins)?;
     manifest["plugins"] = Value::from(plugins);
-    Ok(json!({"manifest":manifest,"copies":copies,"assets":assets}).to_string())
+    Ok(PackagePlan {
+        manifest,
+        copies,
+        assets,
+    })
+}
+
+pub(crate) fn plan(input: &str) -> Result<String, String> {
+    // Preserve the legacy JSON object's field order as well as its shape.
+    let plan = package_plan(input)?;
+    Ok(json!({"manifest":plan.manifest,"copies":plan.copies,"assets":plan.assets}).to_string())
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { z } from "zod";
 
+import { version } from "../package.json";
+
 import { build, watch } from "./commands";
 import { wasm } from "./wasm";
 
@@ -24,7 +26,7 @@ try {
       console.log(options.help);
       break;
     case "version":
-      console.log("1.0.0");
+      console.log(version);
       break;
     case "dev":
       break;

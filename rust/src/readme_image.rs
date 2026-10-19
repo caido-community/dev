@@ -1,8 +1,103 @@
-use image::{imageops::FilterType, AnimationDecoder, ImageFormat, ImageReader};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use image::{
+    imageops::FilterType, AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits,
+};
+use js_sys::{ArrayBuffer, Function, Object, Promise, Reflect, Uint8Array, Uint8ClampedArray};
 use std::io::Cursor;
+use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::JsFuture;
 
+pub(crate) const MAX_IMAGE_BYTES: usize = 100 * 1024;
 const MAX_INPUT_PIXELS: u64 = 40_000_000;
 const MAX_DIMENSION: u32 = 1600;
+
+fn limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_INPUT_PIXELS as u32);
+    limits.max_image_height = Some(MAX_INPUT_PIXELS as u32);
+    limits.max_alloc = Some(MAX_INPUT_PIXELS * 8);
+    limits
+}
+
+fn reader(input: &[u8]) -> Result<ImageReader<Cursor<&[u8]>>, String> {
+    let mut reader = ImageReader::new(Cursor::new(input))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        reader.format(),
+        Some(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP)
+    ) {
+        return Err("Supported README image formats are PNG, JPEG, GIF, and WebP".into());
+    }
+    let (width, height) = ImageReader::with_format(Cursor::new(input), reader.format().unwrap())
+        .into_dimensions()
+        .map_err(|error| error.to_string())?;
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_INPUT_PIXELS {
+        return Err(format!(
+            "README image exceeds the {MAX_INPUT_PIXELS} input pixel limit"
+        ));
+    }
+    reader.limits(limits());
+    Ok(reader)
+}
+
+fn validate_gif(input: &[u8]) -> Result<(), String> {
+    let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(input))
+        .map_err(|error| error.to_string())?;
+    decoder
+        .set_limits(limits())
+        .map_err(|error| error.to_string())?;
+    // Consume one frame at a time rather than collecting an animation in memory.
+    let mut has_frame = false;
+    for frame in decoder.into_frames() {
+        frame.map_err(|error| error.to_string())?;
+        has_frame = true;
+    }
+    if !has_frame {
+        return Err("README GIF contains no frames".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate(input: &[u8], format: ImageFormat) -> Result<(), String> {
+    if input.is_empty()
+        || input.len() > MAX_IMAGE_BYTES
+        || image::guess_format(input).ok() != Some(format)
+    {
+        return Err("Invalid, mismatched, or oversized README image".into());
+    }
+    let reader = reader(input)?;
+    match format {
+        ImageFormat::Gif => validate_gif(input),
+        ImageFormat::WebP => {
+            let mut decoder = image::codecs::webp::WebPDecoder::new(Cursor::new(input))
+                .map_err(|error| error.to_string())?;
+            decoder
+                .set_limits(limits())
+                .map_err(|error| error.to_string())?;
+            if decoder.has_animation() {
+                let mut has_frame = false;
+                for frame in decoder.into_frames() {
+                    frame.map_err(|error| error.to_string())?;
+                    has_frame = true;
+                }
+                if !has_frame {
+                    return Err("README WebP animation contains no frames".into());
+                }
+                Ok(())
+            } else {
+                reader
+                    .decode()
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+        }
+        _ => reader
+            .decode()
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
+    }
+}
 
 pub(crate) fn preserve_gif(input: &[u8]) -> Result<bool, String> {
     if input.len() > 100 * 1024 || image::guess_format(input).ok() != Some(ImageFormat::Gif) {
@@ -14,39 +109,15 @@ pub(crate) fn preserve_gif(input: &[u8]) -> Result<bool, String> {
     if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
         return Ok(false);
     }
-    let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(input))
-        .map_err(|error| format!("Unable to process README GIF: {error}"))?;
-    // Validate frames one at a time; preserving the file must not bypass decoding errors.
-    for frame in decoder.into_frames() {
-        frame.map_err(|error| format!("Unable to process README GIF: {error}"))?;
-    }
+    validate_gif(input).map_err(|error| format!("Unable to process README GIF: {error}"))?;
     Ok(true)
 }
 
 fn prepare(input: &[u8], url: &str) -> Result<image::RgbaImage, String> {
-    let reader = ImageReader::new(Cursor::new(input))
-        .with_guessed_format()
+    let image = reader(input)
+        .and_then(|reader| reader.decode().map_err(|error| error.to_string()))
         .map_err(|error| format!("Unable to process README image {url}: {error}"))?;
-    if !matches!(
-        reader.format(),
-        Some(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP)
-    ) {
-        return Err(format!("Unsupported README image format: {url}. Supported formats are PNG, JPEG, GIF, and WebP (first frame only)"));
-    }
-    let (width, height) = ImageReader::new(Cursor::new(input))
-        .with_guessed_format()
-        .map_err(|error| error.to_string())?
-        .into_dimensions()
-        .map_err(|error| format!("Unable to process README image {url}: {error}"))?;
-    if u64::from(width) * u64::from(height) > MAX_INPUT_PIXELS {
-        return Err(format!(
-            "README image {url} exceeds the {MAX_INPUT_PIXELS} input pixel limit"
-        ));
-    }
-    let image = reader
-        .decode()
-        .map_err(|error| format!("Unable to process README image {url}: {error}"))?;
-    let image = if width > MAX_DIMENSION || height > MAX_DIMENSION {
+    let image = if image.width() > MAX_DIMENSION || image.height() > MAX_DIMENSION {
         image.resize(MAX_DIMENSION, MAX_DIMENSION, FilterType::Lanczos3)
     } else {
         image
@@ -54,13 +125,6 @@ fn prepare(input: &[u8], url: &str) -> Result<image::RgbaImage, String> {
     .to_rgba8();
     Ok(image)
 }
-
-use base64::{engine::general_purpose::STANDARD, Engine};
-use js_sys::{ArrayBuffer, Function, Object, Promise, Reflect, Uint8Array, Uint8ClampedArray};
-use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::JsFuture;
-
-const MAX_IMAGE_BYTES: usize = 100 * 1024;
 
 fn set(object: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(object, &JsValue::from_str(key), value).map(|_| ())

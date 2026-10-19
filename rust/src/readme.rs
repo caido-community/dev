@@ -36,71 +36,48 @@ enum Kind {
 /// The host must still check containment and symlinks before opening this path.
 pub fn local_path(url: &str) -> String {
     let pathname = url.split(['?', '#']).next().unwrap_or(url);
-    let mut output = Vec::with_capacity(pathname.len());
-    let bytes = pathname.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let Some(pair) = bytes.get(i + 1..i + 3) else {
-                return pathname.into();
-            };
-            let (Some(a), Some(b)) = (hex(pair[0]), hex(pair[1])) else {
-                return pathname.into();
-            };
-            output.push(a * 16 + b);
-            i += 3;
-        } else {
-            output.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(output).unwrap_or_else(|_| pathname.into())
-}
-fn hex(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
+    js_sys::decode_uri_component(pathname)
+        .map(String::from)
+        .unwrap_or_else(|_| pathname.to_owned())
 }
 fn data_image(url: &str) -> bool {
     if url.len() > MAX_URI_BYTES {
         return false;
     }
-    let lower = url.to_ascii_lowercase();
-    let Some((header, payload)) = lower.split_once(',') else {
+    let Some((header, _)) = url.split_once(',') else {
         return false;
     };
-    let Some(header) = header.strip_prefix("data:image/") else {
+    // The parser also supports percent-encoded bodies; README images require base64.
+    if !header
+        .rsplit(';')
+        .next()
+        .is_some_and(|part| part.eq_ignore_ascii_case("base64"))
+    {
+        return false;
+    }
+    let Ok(data) = data_url::DataUrl::process(url) else {
         return false;
     };
-    let mut parts: Vec<_> = header.split(';').collect();
-    if parts.len() < 2 || parts.pop() != Some("base64") {
+    let mime = data.mime_type();
+    if !mime.type_.eq_ignore_ascii_case("image") {
         return false;
     }
-    if !matches!(parts[0], "avif" | "gif" | "jpeg" | "jpg" | "png" | "webp") {
-        return false;
-    }
-    let parameter_char = |b: u8| b.is_ascii_alphanumeric() || b".+_-".contains(&b);
-    for parameter in &parts[1..] {
-        let Some((name, value)) = parameter.split_once('=') else {
-            return false;
-        };
-        if name.is_empty()
-            || value.is_empty()
-            || !name.bytes().all(parameter_char)
-            || !value.bytes().all(parameter_char)
-        {
-            return false;
+    let format = match mime.subtype.to_ascii_lowercase().as_str() {
+        "png" => image::ImageFormat::Png,
+        "jpeg" | "jpg" => image::ImageFormat::Jpeg,
+        "gif" => image::ImageFormat::Gif,
+        "webp" => image::ImageFormat::WebP,
+        _ => return false,
+    };
+    let mut bytes = Vec::new();
+    let decoded = data.decode(|chunk| {
+        if bytes.len() + chunk.len() > crate::readme_image::MAX_IMAGE_BYTES {
+            return Err(());
         }
-    }
-    let body = payload.trim_end_matches('=');
-    !body.is_empty()
-        && payload.len() - body.len() <= 2
-        && body
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+        bytes.extend_from_slice(chunk);
+        Ok(())
+    });
+    decoded.is_ok() && crate::readme_image::validate(&bytes, format).is_ok()
 }
 fn classify(url: &str) -> Kind {
     if url.is_empty() {
@@ -113,11 +90,7 @@ fn classify(url: &str) -> Kind {
         .get(..5)
         .is_some_and(|s| s.eq_ignore_ascii_case("data:"))
     {
-        return if data_image(url) {
-            Kind::DataImage
-        } else {
-            Kind::Blocked
-        };
+        return Kind::DataImage;
     }
     let path = local_path(url);
     let bytes = url.as_bytes();
@@ -170,8 +143,15 @@ struct Work<'a> {
     assets: Vec<String>,
     seen: HashSet<String>,
     warnings: Vec<String>,
+    data_images: HashMap<String, bool>,
 }
 impl Work<'_> {
+    fn data_image(&mut self, url: &str) -> bool {
+        *self
+            .data_images
+            .entry(url.to_owned())
+            .or_insert_with(|| data_image(url))
+    }
     fn url(&mut self, original: &str, context: Context, label: &str) -> Result<String, String> {
         let url = original.trim();
         // Browsers remove embedded tab/newline controls while resolving schemes.
@@ -181,7 +161,9 @@ impl Work<'_> {
         } else {
             classify(url)
         };
-        if preserve(kind, context) {
+        if preserve(kind, context)
+            && (kind != Kind::DataImage || self.replacements.is_none() || self.data_image(url))
+        {
             return Ok(url.into());
         }
         if kind == Kind::LocalImage {
@@ -192,7 +174,7 @@ impl Work<'_> {
                 let replacement = replacements
                     .get(url)
                     .ok_or_else(|| format!("Missing replacement for README image: {url}"))?;
-                if !data_image(replacement) {
+                if !self.data_image(replacement) {
                     return Err(format!(
                         "Invalid or oversized replacement for README image: {url}"
                     ));
@@ -317,6 +299,7 @@ fn process<'a>(
         assets: Vec::new(),
         seen: HashSet::new(),
         warnings: Vec::new(),
+        data_images: HashMap::new(),
     };
     // Reference definitions are resolved by the parser into ordinary links/images.
     // Each use is classified in its own context; unused definitions disappear.

@@ -27,12 +27,12 @@ describe("build-frontend", () => {
     // External URLs should be removed (set to empty string)
     expect(readmeContent).not.toContain("http://example.com/image.png");
     expect(readmeContent).not.toContain("https://example.com/image.png");
-    // data: URIs should be kept as-is (not removed)
-    expect(readmeContent).toContain("data:image/png;base64,abc123");
+    // Valid image data URIs are retained without changing their payload.
+    expect(readmeContent).toContain("data:image/png;base64,iVBORw0KGgo");
     // Image syntax should still exist but with empty URLs (alt text preserved)
     expect(readmeContent).toContain("![External HTTP]()");
     expect(readmeContent).toContain("![External HTTPS]()");
-    expect(readmeContent).toContain("![Data URI](data:image/png;base64,abc123)");
+    expect(readmeContent).toContain("![Data URI](data:image/png;base64,iVBORw0KGgo");
   });
 
   it("should preserve local markdown link URLs", async () => {
