@@ -66,6 +66,53 @@ describe("package_plugin", () => {
       await fs.rm(cwd, { recursive: true, force: true });
     }
   });
+  it.each([false, true])(
+    "handles recursive asset matches while rejecting distinct-source collisions: %s",
+    async (collision) => {
+      const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "package-assets-"));
+      try {
+        await fs.mkdir(path.join(cwd, "assets", "data"), { recursive: true });
+        await fs.writeFile(path.join(cwd, "assets", "data", "data.txt"), "nested asset");
+        if (collision) {
+          await fs.writeFile(path.join(cwd, "assets", "data.txt"), "different asset");
+        }
+        await fs.writeFile(path.join(cwd, "README.md"), "# Package");
+        await fs.writeFile(path.join(cwd, "index.js"), "export {};");
+        const packaging = bundlePackage({
+          cwd,
+          config: caidoConfigSchema.parse(JSON.parse(input).config),
+          buildOutputs: [
+            {
+              id: "backend",
+              kind: "backend",
+              name: "Backend",
+              fileName: "index.js",
+              assets: ["assets/**/*"],
+            },
+          ],
+        });
+        if (collision) {
+          await expect(packaging).rejects.toThrow("Duplicate package destination");
+          await expect(fs.access(path.join(cwd, "dist"))).rejects.toThrow();
+        } else {
+          await packaging;
+          const zip = await JSZip.loadAsync(
+            await fs.readFile(path.join(cwd, "dist", "plugin_package.zip")),
+          );
+          expect(await zip.file("backend/assets/data.txt")?.async("string")).toBe("nested asset");
+          expect(
+            await fs.readFile(
+              path.join(cwd, "dist", "plugin_package", "backend", "assets", "data.txt"),
+              "utf8",
+            ),
+          ).toBe("nested asset");
+        }
+      } finally {
+        await fs.rm(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.each([
     ["same.txt", "same.txt"],
     ["same.txt", "SAME.txt"],

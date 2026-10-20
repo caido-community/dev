@@ -187,9 +187,11 @@ pub(crate) async fn convert(
         }
         .await
         .map_err(|error| {
-            let message = js_sys::JsString::from(error)
-                .as_string()
-                .unwrap_or_default();
+            let message = Reflect::get(&error, &JsValue::from_str("message"))
+                .ok()
+                .and_then(|message| message.as_string())
+                .or_else(|| error.as_string())
+                .unwrap_or_else(|| "Unknown encoder error".to_owned());
             JsValue::from_str(&format!("Unable to encode README image {url}: {message}"))
         })?;
         if !output.is_instance_of::<ArrayBuffer>() {

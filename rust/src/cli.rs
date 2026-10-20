@@ -34,8 +34,6 @@ enum CliCommand {
     Build(PathOptions),
     #[command(about = "Start development server and watch for changes")]
     Watch(PathOptions),
-    #[command(about = "Start development server")]
-    Dev(ConfigOptions),
 }
 
 #[derive(Args)]
@@ -75,7 +73,6 @@ pub(crate) fn parse(input: &str) -> Result<String, String> {
     let (name, path, config) = match cli.command.ok_or("Expected a command")? {
         CliCommand::Build(options) => ("build", options.path, options.config.config),
         CliCommand::Watch(options) => ("watch", options.path, options.config.config),
-        CliCommand::Dev(options) => ("dev", None, options.config),
     };
     let mut result = json!({"command":name});
     if let Some(path) = path {

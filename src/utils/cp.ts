@@ -10,6 +10,7 @@ export async function expandPackageAssets(
   checkedSource: (source: string) => Promise<string>,
 ): Promise<{ source: string; relative: string }[]> {
   const files: { source: string; relative: string }[] = [];
+  const collected = new Map<string, Set<string>>();
   async function collect(source: string, relative: string): Promise<void> {
     const file = await checkedSource(source);
     const stats = await fs.stat(file);
@@ -18,6 +19,11 @@ export async function expandPackageAssets(
         await collect(path.join(source, child), relative ? `${relative}/${child}` : child);
       }
     } else if (stats.isFile()) {
+      // Directory traversal and a direct glob match may identify the same copy.
+      const destinations = collected.get(file) ?? new Set<string>();
+      if (destinations.has(relative)) return;
+      destinations.add(relative);
+      collected.set(file, destinations);
       files.push({ source: file, relative });
     } else {
       throw new Error(`Unsupported package source: ${source}`);
