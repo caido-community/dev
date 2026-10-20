@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Run the CLI from TypeScript; pass CLI arguments after --"
+#MISE depends=["build:dev"]
 set -euo pipefail
 
 pnpm exec tsx src/cli.ts "$@"
