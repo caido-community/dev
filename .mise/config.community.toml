@@ -1,0 +1,6 @@
+# Opt-in Linux integration tools: mise --env community install --locked
+[tools]
+# Keep the shared primary first; pnpm 10 is used only for a failed install retry.
+pnpm = ['11.18.0', '10.20.0']
+'aqua:jqlang/jq' = '1.8.1'
+'github:ouch-org/ouch' = '0.6.1'

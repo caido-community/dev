@@ -27,14 +27,12 @@ describe("build-frontend", () => {
     // External URLs should be removed (set to empty string)
     expect(readmeContent).not.toContain("http://example.com/image.png");
     expect(readmeContent).not.toContain("https://example.com/image.png");
-    // data: URIs should be kept as-is (not removed)
-    expect(readmeContent).toContain("data:image/png;base64,abc123");
+    // Valid image data URIs are retained without changing their payload.
+    expect(readmeContent).toContain("data:image/png;base64,iVBORw0KGgo");
     // Image syntax should still exist but with empty URLs (alt text preserved)
     expect(readmeContent).toContain("![External HTTP]()");
     expect(readmeContent).toContain("![External HTTPS]()");
-    expect(readmeContent).toContain(
-      "![Data URI](data:image/png;base64,abc123)",
-    );
+    expect(readmeContent).toContain("![Data URI](data:image/png;base64,iVBORw0KGgo");
   });
 
   it("should preserve local markdown link URLs", async () => {
@@ -65,7 +63,7 @@ describe("build-frontend", () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
     const readmeContent = await getZipFileContent(zipPath, "README.md");
     expect(readmeContent).toBeDefined();
-    expect(readmeContent).toMatch(/\[ref-image\]:\s*data:image\/webp;base64,/);
+    expect(readmeContent).toMatch(/!\[Ref Image\]\(data:image\/webp;base64,/);
     // [ref-link]: https://example.com/docs is external and should be removed
     expect(readmeContent).not.toContain("https://example.com/docs");
   });
@@ -91,10 +89,7 @@ describe("build-frontend", () => {
   it("should have manifest.json file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const manifestJsonContent = await getZipFileContent(
-      zipPath,
-      "manifest.json",
-    );
+    const manifestJsonContent = await getZipFileContent(zipPath, "manifest.json");
 
     expect(manifestJsonContent).toEqual(
       JSON.stringify(
@@ -130,9 +125,10 @@ describe("build-frontend", () => {
   it("should have index.js file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const indexJsContent = (
-      await getZipFileContent(zipPath, "frontend/index.js")
-    )?.replace(/\s+/g, "");
+    const indexJsContent = (await getZipFileContent(zipPath, "frontend/index.js"))?.replace(
+      /\s+/g,
+      "",
+    );
 
     const expectedContent = `
       const o = () => {
@@ -149,10 +145,7 @@ describe("build-frontend", () => {
   it("should have index.css file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const indexCssContent = await getZipFileContent(
-      zipPath,
-      "frontend/index.css",
-    );
+    const indexCssContent = await getZipFileContent(zipPath, "frontend/index.css");
 
     expect(indexCssContent).toEqual("body{background-color:red}\n");
   });
@@ -160,10 +153,7 @@ describe("build-frontend", () => {
   it("should have assets txt", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const assetContent = await getZipFileContent(
-      zipPath,
-      "frontend/assets/test.txt",
-    );
+    const assetContent = await getZipFileContent(zipPath, "frontend/assets/test.txt");
 
     expect(assetContent).toEqual("Hello world");
   });
@@ -171,10 +161,7 @@ describe("build-frontend", () => {
   it("should have assets recursive", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const assetContent = await getZipFileContent(
-      zipPath,
-      "frontend/assets/data/data.txt",
-    );
+    const assetContent = await getZipFileContent(zipPath, "frontend/assets/data/data.txt");
 
     expect(assetContent).toEqual("My data");
   });

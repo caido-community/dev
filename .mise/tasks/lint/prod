@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Check Oxlint and Deslop without modifying files"
+set -euo pipefail
+
+pnpm exec oxlint --deny-warnings .

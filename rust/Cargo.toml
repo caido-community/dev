@@ -1,0 +1,25 @@
+[package]
+name = "caido-dev"
+version = "1.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+comrak = { version = "=0.41.0", default-features = false }
+html5ever = "=0.38.0"
+image = { version = "=0.25.8", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+clap = { version = "=4.5.48", default-features = false, features = ["std", "help", "usage", "error-context", "derive"] }
+sanitize-filename = "=0.6.0"
+typed-path = "=0.12.3"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.145", features = ["preserve_order"] }
+wasm-bindgen = "=0.2.104"
+js-sys = "=0.3.81"
+wasm-bindgen-futures = "=0.4.54"
+base64 = "=0.22.1"
+data-url = "=0.3.2"
+zip = { version = "=9.0.5", default-features = false }

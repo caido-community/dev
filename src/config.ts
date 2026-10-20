@@ -7,10 +7,7 @@ import { logInfo } from "./utils";
 
 const DEFAULT_CONFIG_FILE = "caido.config.ts";
 
-export async function loadConfig(
-  cwd: string,
-  configPath?: string,
-): Promise<CaidoConfig> {
+export async function loadConfig(cwd: string, configPath?: string): Promise<CaidoConfig> {
   const configFile = configPath || path.resolve(cwd, DEFAULT_CONFIG_FILE);
   logInfo(`Loading configuration: ${configFile}`);
 
