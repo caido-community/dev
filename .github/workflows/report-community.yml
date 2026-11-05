@@ -1,7 +1,7 @@
 name: Report community packaging
 
 on:
-  # Only GitHub job metadata is consumed; no PR code or artifacts are executed.
+  # Only GitHub job metadata and validated failure lines are read; no PR code is executed.
   workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: ["Test community plugins"]
     types: [completed]
@@ -33,12 +33,37 @@ jobs:
               owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
             });
             const platforms = ['ubuntu-latest', 'windows-latest'];
-            const rows = platforms.map(platform => {
+            const rows = [];
+            const failures = [];
+            for (const platform of platforms) {
               const job = jobs.find(job => job.name === `test-community (${platform})`);
               const failed = job?.steps?.find(step => step.conclusion === 'failure');
               const result = failed ? `Failed: ${failed.name}` : (job?.conclusion || 'Not reported');
-              return `| ${platform} | ${result} |`;
-            });
+              rows.push(`| ${platform} | ${result} |`);
+              if (!job) continue;
+              try {
+                const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner, repo, job_id: job.id,
+                });
+                const logs = typeof response.data === 'string'
+                  ? response.data : Buffer.from(response.data).toString('utf8');
+                // Only render validated repository names/stages, never arbitrary log text.
+                const matches = logs.matchAll(/(?:^|\n)[^\n]*?\bFAIL (caido-community\/[a-z0-9][a-z0-9._-]{0,99}) \((clone|install|install-pnpm10|build|archive)\); logs:/g);
+                const entries = [...new Set([...matches].map(match => `- \`${match[1]}\` — ${match[2]}`))];
+                failures.push(`#### ${platform}`, '');
+                if (entries.length) {
+                  failures.push(...entries.slice(0, 100));
+                  if (entries.length > 100) failures.push('- Additional failures omitted; see logs.');
+                } else {
+                  failures.push(job.conclusion === 'success' && !failed
+                    ? 'No repository failures reported.'
+                    : 'No repository failure details recorded; the run may have failed during setup or stopped before completing a repository.');
+                }
+                failures.push('');
+              } catch {
+                failures.push(`#### ${platform}`, '', 'Job logs are unavailable; see the workflow run for details.', '');
+              }
+            }
             const body = [
               '<!-- community-packaging-results -->',
               '### Community plugin packaging',
@@ -49,6 +74,7 @@ jobs:
               '| --- | --- |',
               ...rows,
               '',
+              ...failures,
               `[View repository-level PASS/FAIL output and download failure logs](${run.html_url}).`,
               'Failure-log artifacts are retained for seven days. Results depend on the live store, plugin default branches, and registries.',
             ].join('\n');
