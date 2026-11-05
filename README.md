@@ -44,7 +44,7 @@ Each repository is shallow-cloned into a temporary directory. Failed primary ins
 
 To test one listed repository, run `mise --env community run test-community -- --repository caido-community/authmatrix`.
 
-The **Test community plugins** GitHub Actions workflow runs the full sweep on disposable Ubuntu, Windows, and macOS runners via **Actions → Test community plugins → Run workflow**. It uses read-only repository permissions and does not persist checkout credentials. Configure the repository Actions variable `CI__MISE_VERSION` for the Mise setup action.
+The **Test community plugins** GitHub Actions workflow runs the full sweep on disposable Ubuntu, Windows, and macOS runners via **Actions → Test community plugins → Run workflow**. It uses read-only repository permissions and does not persist checkout credentials. Configure the repository Actions variable `CI__MISE_VERSION` for the Mise setup action. Failed sweeps upload per-stage logs and the summary as `community-packaging-logs-<os>` artifacts retained for seven days; cloned repositories, dependencies, and package output are not uploaded.
 
 **Security:** this runs third-party installation scripts and build hooks. Use a disposable environment without credentials or sensitive files, never a privileged self-hosted runner. Child processes receive an allowlisted environment and isolated home, but this is not a sandbox. Results depend on the live store, repository default branches, registries, and network availability.
 

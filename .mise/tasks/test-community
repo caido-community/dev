@@ -114,7 +114,7 @@ package_repository() {
   [[ -s $archive ]] || { echo 'Missing or empty plugin_package.zip'; return 1; }
   clean_run ouch decompress "$archive" --dir "$extracted" > "$logs/archive.log" 2>&1 || return
   [[ -s $extracted/README.md && -s $extracted/manifest.json ]] || { echo 'Missing nonempty README.md or manifest.json'; return 1; }
-  jq -ber '
+  jq -br '
     if (.plugins | type) != "array" then error("Manifest plugins must be an array") else .plugins[] end
     | .entrypoint
     | if type == "string" and length > 0 then . else error("Invalid entrypoint") end
