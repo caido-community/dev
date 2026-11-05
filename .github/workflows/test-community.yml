@@ -43,4 +43,21 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package community plugins
-        run: mise run test-community
+        run: |
+          export TMPDIR="$(cd "$RUNNER_TEMP" && pwd)"
+          mise run test-community
+
+      - name: Upload packaging failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: community-packaging-logs-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/caido-community-test.*/summary.log
+            ${{ runner.temp }}/caido-community-test.*/*/clone.log
+            ${{ runner.temp }}/caido-community-test.*/*/install.log
+            ${{ runner.temp }}/caido-community-test.*/*/install-pnpm10.log
+            ${{ runner.temp }}/caido-community-test.*/*/build.log
+            ${{ runner.temp }}/caido-community-test.*/*/archive.log
+          if-no-files-found: ignore
+          retention-days: 7
