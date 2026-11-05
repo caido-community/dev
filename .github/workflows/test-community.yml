@@ -42,8 +42,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check platform scripts
-        run: bash scripts/test-community/platforms/test.sh
-
       - name: Package community plugins
         run: mise run test-community

@@ -64,7 +64,7 @@ mise --env community install --locked
 mise --env community run test-community
 ```
 
-The shared `.mise/tasks/test-community` task selects a platform script under `scripts/test-community/platforms/`: `linux.sh`, `macos.sh`, or `windows.sh`. Those scripts own timeout prerequisites, executable path conversion, and platform-specific child-process environment variables. Repository discovery and clone/install/build/archive checks remain shared. Run the offline platform-interface checks with `bash scripts/test-community/platforms/test.sh` (Windows conversion is simulated outside Windows).
+The shared `.mise/tasks/test-community` task selects a platform script under `scripts/test-community/platforms/`: `linux.sh`, `macos.sh`, or `windows.sh`. Those scripts own timeout prerequisites, executable path conversion, and platform-specific child-process environment variables. Repository discovery and clone/install/build/archive checks remain shared.
 
 This opt-in network test builds this checkout with `build:prod`, fetches the live [plugin store index](https://raw.githubusercontent.com/caido/store/main/plugin_packages.json) with curl, and uses jq to select **every unique `caido-community` repository** listed there. It is separate from `mise run test` and pull-request CI. The additional jq, ouch, and Aqua pnpm 10.20.0 fallback tools are pinned in `.mise/config.community.toml`, with Linux x64/ARM64, Windows x64, and macOS ARM64 downloads locked in `.mise/mise.community.lock`; ordinary tool installation and CI are unchanged. Bash 3.2 or newer, curl, Git, find, and GNU timeout are OS prerequisites; Node and the primary pnpm come from the default Mise configuration.
 
