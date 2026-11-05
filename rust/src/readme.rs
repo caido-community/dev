@@ -15,7 +15,8 @@ use html5ever::{
 use serde_json::json;
 use typed_path::{Utf8UnixPath, Utf8WindowsComponent, Utf8WindowsPath};
 
-const MAX_URI_BYTES: usize = (100_usize * 1024 * 4).div_ceil(3) + "data:image/webp;base64,".len();
+const MAX_URI_BYTES: usize =
+    crate::readme_image::MAX_IMAGE_BYTES.div_ceil(3) * 4 + "data:image/webp;base64,".len();
 const MAX_README_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -47,7 +48,10 @@ enum Kind {
 pub fn local_path(url: &str) -> String {
     // Raw HTML permits spaces in local filenames. Escape only for parsing, without
     // resolving against a base URL or normalizing filesystem path segments.
-    let escaped = url.replace(' ', "%20");
+    let escaped = url
+        .replace(' ', "%20")
+        .replace('[', "%5B")
+        .replace(']', "%5D");
     let Ok(reference) = IriRef::parse(escaped.as_str()) else {
         return url.to_owned();
     };
@@ -103,7 +107,10 @@ fn classify(url: &str) -> Kind {
     if url.is_empty() {
         return Kind::Empty;
     }
-    let escaped = url.replace(' ', "%20");
+    let escaped = url
+        .replace(' ', "%20")
+        .replace('[', "%5B")
+        .replace(']', "%5D");
     let Ok(reference) = IriRef::parse(escaped.as_str()) else {
         return Kind::Blocked;
     };

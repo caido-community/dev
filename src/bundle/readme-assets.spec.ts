@@ -265,6 +265,25 @@ describe("transformReadmeImages", () => {
     },
   );
 
+  it.each(["![Image](figure[1].png)", '<img src="figure[1].png">'])(
+    "inlines square-bracket filenames: %s",
+    async (markdown) => {
+      await fs.copyFile(imageFixture("red16x16.png"), path.join(tempDir, "figure[1].png"));
+      await fs.writeFile(path.join(tempDir, "README.md"), markdown);
+      expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain(
+        "data:image/webp;base64,",
+      );
+    },
+  );
+
+  it("preserves padded data images exactly at the encoded-image byte limit", async () => {
+    const image = await fs.readFile(imageFixture("red16x16.png"));
+    const exactLimit = Buffer.concat([image, Buffer.alloc(MAX_INLINED_IMAGE_BYTES - image.length)]);
+    const uri = `data:image/png;base64,${exactLimit.toString("base64")}`;
+    await fs.writeFile(path.join(tempDir, "README.md"), `![Image](${uri})`);
+    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain(uri);
+  });
+
   it("parses Unicode local HTML image paths with spaces, queries, and fragments", async () => {
     await fs.copyFile(imageFixture("red16x16.png"), path.join(tempDir, "café image.PNG"));
     await fs.writeFile(
