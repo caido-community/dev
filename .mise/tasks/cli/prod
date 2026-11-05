@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Build and run the packaged CLI; pass CLI arguments after --"
+#MISE depends=["build:prod"]
+set -euo pipefail
+
+node dist/cli.js "$@"

@@ -11,4 +11,4 @@
   },
   "include": ["src/**/*", "playgrounds/**/*"],
   "exclude": ["node_modules", "dist"]
-} 
+}

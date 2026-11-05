@@ -3,47 +3,51 @@ name: Validate
 on:
   push:
     branches:
-      - 'main'
+      - "main"
   pull_request:
 
-env:
-  NODE_VERSION: 20
-  PNPM_VERSION: 9
+permissions:
+  contents: read
 
 jobs:
   validate:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MISE_ENV: dev
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Install Mise tools
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
         with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
+          working_directory: .
+          version: ${{ vars.CI__MISE_VERSION }}
+          install_args: --locked
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Check formatting
+        run: mise run format:prod
 
-      - name: Run tests
-        run: pnpm test
+      - name: Lint
+        run: mise run lint:prod
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: mise run typecheck:prod
 
       - name: Knip
-        run: pnpm exec knip
+        run: mise run knip:prod
+
+      - name: Audit GitHub Actions workflows
+        run: mise run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Audit Rust dependencies
+        run: mise run audit:prod

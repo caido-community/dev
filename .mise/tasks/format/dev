@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Format JavaScript, TypeScript, documentation, and Rust"
+set -euo pipefail
+
+pnpm exec oxfmt --write .
+cargo fmt --manifest-path rust/Cargo.toml --all

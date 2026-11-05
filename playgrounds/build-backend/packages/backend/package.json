@@ -1,7 +1,6 @@
 {
-    "name": "backend",
-    "private": true,
-    "version": "0.0.0",
-    "license": "ISC"
-  }
-  
+  "name": "backend",
+  "version": "0.0.0",
+  "private": true,
+  "license": "ISC"
+}

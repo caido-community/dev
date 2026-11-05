@@ -1,7 +1,7 @@
 import { execFileSync, execSync } from "child_process";
 import path from "path";
 
-import { afterAll, beforeAll, expect } from "vitest";
+import { afterAll, beforeAll } from "vitest";
 
 function hasPathSegment(filePath: string, segment: string) {
   return filePath.split(/[\\/]+/).includes(segment);
@@ -24,15 +24,11 @@ beforeAll(({ file }) => {
     cwd: playgroundDir,
   });
 
-  // Run pnpm build in the playground directory
+  // Run the built CLI in the playground directory
   console.log(`Building playground in ${playgroundDir}...`);
-  execFileSync(
-    process.execPath,
-    [path.join("..", "..", "dist", "cli.js"), "build"],
-    {
-      cwd: playgroundDir,
-    },
-  );
+  execFileSync(process.execPath, [path.join("..", "..", "dist", "cli.js"), "build"], {
+    cwd: playgroundDir,
+  });
 });
 
 afterAll(() => {

@@ -3,9 +3,9 @@ name: Publish
 on:
   push:
     branches:
-      - 'main'
+      - "main"
     paths:
-      - 'package.json'
+      - "package.json"
 
 permissions:
   id-token: write # Required for OIDC
@@ -14,23 +14,31 @@ permissions:
 jobs:
   publish-js:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      MISE_ENV: dev
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install Mise
-        uses: caido/action-mise-action@v3.2.0
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
         with:
           working_directory: .
           version: ${{ vars.CI__MISE_VERSION }}
+          install_args: --locked
+
+      - name: Audit Rust dependencies
+        run: mise run audit:prod
 
       - name: Install
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+        run: mise run build:prod
 
       - name: Publish
         shell: bash

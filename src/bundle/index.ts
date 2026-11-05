@@ -1,123 +1,41 @@
-import fs from "fs/promises";
-import path from "path";
-
-import { validateManifest } from "@caido/plugin-manifest";
-import JSZip from "jszip";
-
-import { createManifest } from "../manifest";
 import type { BuildOutput, CaidoConfig } from "../types";
-import { addDirectoryToZip, logInfo, logSuccess } from "../utils";
+import { logInfo, logSuccess } from "../utils";
+import { wasm } from "../wasm";
 
-import { bundleBackendPlugin } from "./backend";
-import { bundleFrontendPlugin } from "./frontend";
-import { transformReadmeImages } from "./readme-assets";
+import { createPackageHost, preloadPackageInputs } from "./package-host";
 
-/**
- * Creates the dist directories.
- * @param cwd - The current working directory.
- * @returns The dist directory and the plugin package directory.
- */
-async function createDistDirectories(cwd: string) {
-  const distDir = path.resolve(cwd, "dist");
-  await fs.rm(distDir, {
-    recursive: true,
-    force: true,
-  });
-
-  const pluginPackageDir = path.join(distDir, "plugin_package");
-  await fs.mkdir(pluginPackageDir, { recursive: true });
-
-  return {
-    distDir,
-    pluginPackageDir,
-  };
-}
-
-/**
- * Bundles the plugin package.
- * @param options - The options.
- * @param options.cwd - The current working directory.
- * @param options.packageJson - The root package.json.
- * @param options.buildOutputs - The build outputs.
- * @returns The plugin package.
- */
 export async function bundlePackage(options: {
   cwd: string;
   buildOutputs: BuildOutput[];
   config: CaidoConfig;
 }): Promise<void> {
+  const { config, buildOutputs } = options;
   logInfo("Bundling plugin package");
-  const { cwd, buildOutputs, config } = options;
-
-  // Create dist directories
-  const { distDir, pluginPackageDir } = await createDistDirectories(cwd);
-
-  // Copy README.md (always included, always at root)
-  const readmePath = path.join(cwd, "README.md");
-  try {
-    await fs.access(readmePath);
-  } catch {
-    throw new Error("README.md is required but not found in project root");
-  }
-
-  // Inline local README images and remove external README URLs.
-  const transformedReadme = await transformReadmeImages(readmePath);
-
-  // Write transformed README to package directory
-  const readmeDest = path.join(pluginPackageDir, "README.md");
-  await fs.writeFile(readmeDest, transformedReadme);
-
-  // Create manifest
-  const manifest = createManifest({ config });
-
-  // Copy build outputs to dist directory
-  for (const buildOutput of buildOutputs) {
-    switch (buildOutput.kind) {
-      case "frontend":
-        manifest.plugins.push(
-          bundleFrontendPlugin(cwd, pluginPackageDir, buildOutput),
-        );
-        break;
-      case "backend":
-        manifest.plugins.push(
-          bundleBackendPlugin(cwd, pluginPackageDir, buildOutput),
-        );
-        break;
-    }
-  }
-
-  // Assert that the manifest is valid
-  if (!validateManifest(manifest)) {
-    throw new Error(
-      "Manifest is not valid:" + JSON.stringify(manifest, null, 2),
-    );
-  }
-
-  // Write manifest to dist directory
-  const manifestPath = path.join(pluginPackageDir, "manifest.json");
-  const manifestContent = JSON.stringify(manifest, null, 2);
-  await fs.writeFile(manifestPath, manifestContent);
-
-  // Generate zip file
-  const zip = new JSZip();
-
-  // Zip all the contents of the plugin package directory
-  await addDirectoryToZip(zip, pluginPackageDir);
-
-  // Write zip file to dist directory
-  const zipPath = path.join(distDir, "plugin_package.zip");
-  const zipFile = await fs.open(zipPath, "w");
-  await new Promise<void>((resolve, reject) => {
-    zip
-      .generateNodeStream({
-        type: "nodebuffer",
-        streamFiles: true,
-      })
-      .pipe(zipFile.createWriteStream())
-      .on("finish", () => {
-        logSuccess("Plugin package zip file created successfully");
-        resolve();
-      })
-      .on("error", reject);
+  const host = await createPackageHost({
+    cwd: options.cwd,
+    pluginRoots: config.plugins.map((plugin) => plugin.root),
   });
+  const preloaded = await preloadPackageInputs(host, buildOutputs);
+  // Build-tool options can contain functions; only packaging fields cross into Rust.
+  const packageConfig: Parameters<typeof wasm.package_plugin>[0]["config"] = {
+    id: config.id,
+    name: config.name,
+    description: config.description,
+    version: config.version,
+    author: config.author,
+    plugins: config.plugins.map((plugin) => {
+      const packaged: Parameters<typeof wasm.package_plugin>[0]["config"]["plugins"][number] = {
+        id: plugin.id,
+      };
+      if (plugin.kind === "frontend" && plugin.backend !== undefined) {
+        packaged.backend = plugin.backend;
+      }
+      return packaged;
+    }),
+  };
+  if (config.links !== undefined) packageConfig.links = config.links;
+  const result = wasm.package_plugin({ config: packageConfig, buildOutputs }, preloaded);
+  for (const message of result.messages) logInfo(message);
+  await host.writePackage(result);
+  logSuccess("Plugin package zip file created successfully");
 }

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Format Bash scripts (use --env dev)"
+set -euo pipefail
+scripts=()
+while IFS= read -r -d '' script; do
+  scripts+=("$script")
+done < <(find .mise/tasks scripts/test-community -type f ! -name '*.md' -print0)
+shfmt -ln bash -i 2 -ci -w "${scripts[@]}"

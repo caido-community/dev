@@ -57,9 +57,7 @@ export async function buildFrontendPlugin(
     id: pluginConfig.id,
     name: pluginConfig.name ?? "frontend",
     fileName: path.join(pluginRoot, "dist", "index.js"),
-    cssFileName: hasCss
-      ? path.join(pluginRoot, "dist", "index.css")
-      : undefined,
+    cssFileName: hasCss ? path.join(pluginRoot, "dist", "index.css") : undefined,
     backendId: pluginConfig.backend?.id,
     assets: pluginConfig.assets ?? [],
   };

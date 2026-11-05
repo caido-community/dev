@@ -8,10 +8,7 @@ describe("build-backend", () => {
   it("should have manifest.json file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const manifestJsonContent = await getZipFileContent(
-      zipPath,
-      "manifest.json",
-    );
+    const manifestJsonContent = await getZipFileContent(zipPath, "manifest.json");
 
     expect(manifestJsonContent).toEqual(
       JSON.stringify(
@@ -46,9 +43,10 @@ describe("build-backend", () => {
   it("should have index.js file", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const indexJsContent = (
-      await getZipFileContent(zipPath, "backend/index.js")
-    )?.replace(/\s+/g, "");
+    const indexJsContent = (await getZipFileContent(zipPath, "backend/index.js"))?.replace(
+      /\s+/g,
+      "",
+    );
 
     const expectedContent = `
       //packages/backend/src/index.ts
@@ -65,10 +63,7 @@ describe("build-backend", () => {
   it("should have asset txt", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const assetContent = await getZipFileContent(
-      zipPath,
-      "backend/assets/test.txt",
-    );
+    const assetContent = await getZipFileContent(zipPath, "backend/assets/test.txt");
 
     expect(assetContent).toEqual("Hello world");
   });
@@ -76,10 +71,7 @@ describe("build-backend", () => {
   it("should not have asset bin", async () => {
     const zipPath = path.resolve(__dirname, "../dist/plugin_package.zip");
 
-    const assetContent = await getZipFileContent(
-      zipPath,
-      "backend/assets/other.bin",
-    );
+    const assetContent = await getZipFileContent(zipPath, "backend/assets/other.bin");
 
     expect(assetContent).toBeUndefined();
   });

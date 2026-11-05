@@ -1,7 +1,7 @@
 import { builtinModules } from "module";
 import path from "path";
 
-import { build, defineConfig, type Options } from "tsup";
+import { build, type Options } from "tsup";
 
 import type { BackendBuildOutput, BackendPluginConfig } from "../types";
 import { logInfo, slash } from "../utils";
@@ -12,13 +12,13 @@ import { logInfo, slash } from "../utils";
  * @param plugin - The backend plugin configuration.
  * @returns The tsup config.
  */
-function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
+function createTsupConfig(cwd: string, plugin: BackendPluginConfig): Options {
   const root = path.resolve(cwd, plugin.root);
-  return defineConfig({
+  return {
     target: "esnext",
     entry: [slash(path.resolve(root, "src/index.ts"))],
     outDir: slash(path.resolve(root, "dist")),
-    outExtension: (ctx) => {
+    outExtension: () => {
       return { js: ".js" };
     },
     format: ["esm"],
@@ -26,7 +26,7 @@ function createTsupConfig(cwd: string, plugin: BackendPluginConfig) {
     clean: true,
     sourcemap: false,
     external: [/caido:.+/, "sqlite", ...builtinModules],
-  }) as Options;
+  };
 }
 
 /**

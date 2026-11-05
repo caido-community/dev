@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Build the CLI and library"
+#MISE description="Build JavaScript and Rust/WASM for CI and publishing"
 set -euo pipefail
-pnpm build
+
+pnpm exec tsup
+node scripts/build-wasm.mjs
