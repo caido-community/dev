@@ -52,6 +52,27 @@ url_api = "https://api.github.com/repos/ouch-org/ouch/releases/assets/248071210"
 url = "https://github.com/ouch-org/ouch/releases/download/0.6.1/ouch-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/ouch-org/ouch/releases/assets/248071214"
 
+[[tools.node]]
+version = "24.18.0"
+backend = "core:node"
+specifiers = ["24"]
+
+[tools.node."platforms.linux-arm64"]
+checksum = "sha256:6b4484c2190274175df9aa8f28e2d758a819cb1c1fe6ab481e2f95b463ab8508"
+url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-arm64.tar.gz"
+
+[tools.node."platforms.linux-x64"]
+checksum = "sha256:783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8"
+url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz"
+
+[tools.node."platforms.macos-arm64"]
+checksum = "sha256:e1a97e14c99c803e96c7339403282ea05a499c32f8d83defe9ef5ec66f979ed1"
+url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.gz"
+
+[tools.node."platforms.windows-x64"]
+checksum = "sha256:0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821"
+url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip"
+
 [[tools.pnpm]]
 version = "10.20.0"
 backend = "aqua:pnpm/pnpm"
