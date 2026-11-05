@@ -95,6 +95,54 @@ describe("package_plugin", () => {
     ).toThrow("Invalid plugin id");
   });
 
+  it("packages configurations containing function-valued Vite options", async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "package-vite-options-"));
+    try {
+      await fs.mkdir(path.join(cwd, "frontend"));
+      await fs.writeFile(path.join(cwd, "README.md"), "# Package");
+      await fs.writeFile(path.join(cwd, "index.js"), "export {};");
+      const config = caidoConfigSchema.parse({
+        ...JSON.parse(input).config,
+        plugins: [
+          {
+            id: "frontend",
+            kind: "frontend",
+            name: "Frontend",
+            root: "frontend",
+            vite: {
+              plugins: [{ name: "callback-plugin", config: () => ({}) }],
+              build: { rollupOptions: { external: () => false } },
+            },
+          },
+        ],
+      });
+      await bundlePackage({
+        cwd,
+        config,
+        buildOutputs: [
+          {
+            id: "frontend",
+            kind: "frontend",
+            name: "Frontend",
+            fileName: "index.js",
+            cssFileName: undefined,
+            backendId: undefined,
+            assets: [],
+          },
+        ],
+      });
+      const zip = await JSZip.loadAsync(
+        await fs.readFile(path.join(cwd, "dist", "plugin_package.zip")),
+      );
+      const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+      expect(manifest.id).toBe(config.id);
+      expect(manifest.plugins[0].id).toBe("frontend");
+      expect(manifest.plugins[0]).not.toHaveProperty("vite");
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("leaves existing outputs intact for missing README and invalid inputs", async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "package-test-"));
     try {

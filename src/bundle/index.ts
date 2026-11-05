@@ -16,7 +16,25 @@ export async function bundlePackage(options: {
     pluginRoots: config.plugins.map((plugin) => plugin.root),
   });
   const preloaded = await preloadPackageInputs(host, buildOutputs);
-  const result = wasm.package_plugin({ config, buildOutputs }, preloaded);
+  // Build-tool options can contain functions; only packaging fields cross into Rust.
+  const packageConfig: Parameters<typeof wasm.package_plugin>[0]["config"] = {
+    id: config.id,
+    name: config.name,
+    description: config.description,
+    version: config.version,
+    author: config.author,
+    plugins: config.plugins.map((plugin) => {
+      const packaged: Parameters<typeof wasm.package_plugin>[0]["config"]["plugins"][number] = {
+        id: plugin.id,
+      };
+      if (plugin.kind === "frontend" && plugin.backend !== undefined) {
+        packaged.backend = plugin.backend;
+      }
+      return packaged;
+    }),
+  };
+  if (config.links !== undefined) packageConfig.links = config.links;
+  const result = wasm.package_plugin({ config: packageConfig, buildOutputs }, preloaded);
   for (const message of result.messages) logInfo(message);
   await host.writePackage(result);
   logSuccess("Plugin package zip file created successfully");

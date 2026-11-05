@@ -31,7 +31,9 @@ export const wasm = require(modulePath) as {
 };
 
 type PackageInput = {
-  config: CaidoConfig;
+  config: Pick<CaidoConfig, "id" | "name" | "description" | "version" | "author" | "links"> & {
+    plugins: { id: string; backend?: { id: string } | null }[];
+  };
   buildOutputs: BuildOutput[];
 };
 
