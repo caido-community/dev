@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Run the CLI from TypeScript; pass CLI arguments after --"
+#MISE description="Build and run the local native CLI; pass CLI arguments after --"
 #MISE depends=["build:dev"]
 set -euo pipefail
 
-pnpm exec tsx src/cli.ts "$@"
+export CAIDO_DEV_BINARY
+CAIDO_DEV_BINARY="$(node -p 'require("node:path").resolve("dist", "native", process.platform === "win32" ? "caido-dev.exe" : "caido-dev")')"
+node scripts/native-launcher.mjs "$@"

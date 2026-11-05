@@ -86,19 +86,3 @@ export const caidoConfigSchema = z.strictObject({
 export type FrontendPluginConfig = z.infer<typeof frontendPluginConfigSchema>;
 export type BackendPluginConfig = z.infer<typeof backendPluginConfigSchema>;
 export type CaidoConfig = z.infer<typeof caidoConfigSchema>;
-
-export type ConnectedMessage = {
-  kind: "connected";
-  packageId: string;
-  downloadUrl: string;
-};
-
-export type RebuildMessage = {
-  kind: "rebuild";
-  downloadUrl: string;
-};
-
-export type ErrorMessage = {
-  kind: "error";
-  error: string;
-};

@@ -1,5 +1,5 @@
 [graph]
-targets = ["wasm32-unknown-unknown"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [advisories]
 version = 2
@@ -8,11 +8,32 @@ version = 2
 version = 2
 allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Unicode-3.0"]
 confidence-threshold = 0.8
-exceptions = [{ name = "borrow-or-share", allow = ["MIT-0"] }]
+exceptions = [
+  { name = "borrow-or-share", allow = ["MIT-0"] },
+  # Native filesystem watching: CC0 dedication with fallback public license.
+  { name = "notify", version = "=8.2.0", allow = ["CC0-1.0"] },
+  # Linux notify backend: permissive ISC, retaining copyright/license notices.
+  { name = "inotify", version = "=0.11.5", allow = ["ISC"] },
+  { name = "inotify-sys", version = "=0.1.8", allow = ["ISC"] },
+]
+
+# webp 0.3.1 is MIT OR Apache-2.0; libwebp-sys 0.9.6 declares MIT.
+# Its compiled vendor/src and vendor/sharpyuv C sources also require the
+# BSD-3-Clause vendor/COPYING notice; retain vendor/PATENTS with distributions.
+# These licenses are already allowed above; no WebP-specific waiver is needed.
 
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+skip = [
+  # tungstenite 0.29 uses rand 0.9/getrandom 0.3; cc's jobserver uses 0.4.
+  { name = "getrandom", version = "=0.3.4" },
+  # serde/clap/ref-cast macros require syn 2; Tokio/thiserror macros use syn 3.
+  { name = "syn", version = "=2.0.119" },
+  # notify 8.2.0 requires 0.60; Tokio/mio/socket2 require 0.61.
+  # notify 8.2.1 was published 2026-10-25: not yet eligible on 2026-11-05.
+  { name = "windows-sys", version = "=0.60.2" },
+]
 
 [sources]
 unknown-registry = "deny"

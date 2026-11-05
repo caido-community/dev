@@ -1,6 +1,6 @@
-mod wasm;
+mod native;
 
-pub(crate) use wasm::assemble;
+pub(crate) use native::assemble;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -372,11 +372,4 @@ fn package_plan(input: PackageInput) -> Result<PackagePlan, String> {
         copies,
         assets,
     })
-}
-
-pub(crate) fn plan(input: &str) -> Result<String, String> {
-    // Preserve the legacy JSON object's field order as well as its shape.
-    let input = serde_json::from_str(input).map_err(|e| format!("Invalid package input: {e}"))?;
-    let plan = package_plan(input)?;
-    Ok(json!({"manifest":plan.manifest,"copies":plan.copies,"assets":plan.assets}).to_string())
 }

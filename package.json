@@ -22,20 +22,15 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
-    "@jsquash/webp": "1.5.0",
-    "chokidar": "4.0.3",
-    "express": "5.0.0",
     "glob": "11.0.1",
     "jiti": "2.4.2",
     "tsup": "8.3.5",
+    "typescript": "5.7.2",
     "vite": "6.0.7",
-    "ws": "8.18.0",
     "zod": "3.24.1"
   },
   "devDependencies": {
-    "@types/express": "5.0.0",
     "@types/node": "22.10.2",
-    "@types/ws": "8.5.13",
     "ai-deslop": "0.4.4",
     "jszip": "3.10.1",
     "knip": "6.7.0",
@@ -43,7 +38,6 @@
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2003",
     "tsx": "4.19.2",
-    "typescript": "5.7.2",
     "vitest": "3.0.5"
   },
   "engines": {

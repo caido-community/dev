@@ -14,9 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout project
@@ -34,5 +34,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and run tests
+      - name: Build and run tests, including native encoder tests
         run: mise run test
+
+      - name: Test native launcher selection and failures
+        run: |
+          cargo fetch --locked --manifest-path rust/Cargo.toml
+          node --test scripts/native-launcher.test.mjs scripts/package-main.test.mjs scripts/native-notices.test.mjs
+
+      - name: Smoke test native executable
+        shell: bash
+        run: |
+          binary=./dist/native/caido-dev
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          "$binary" --help
+          "$binary" --version

@@ -52,6 +52,8 @@ for tool in curl jq git ouch pnpm node mise find; do
   }
 done
 cli="$root/dist/cli.js"
+export CAIDO_DEV_BINARY
+CAIDO_DEV_BINARY="$(node -p 'require("node:path").resolve(process.argv[1], "dist", "native", process.platform === "win32" ? "caido-dev.exe" : "caido-dev")' "$root")"
 fallback_pnpm=$(cd "$root" && mise --env community which pnpm --tool pnpm@10.20.0) || {
   echo 'Missing pnpm 10.20.0; run mise --env community install --locked.' >&2
   exit 1
@@ -115,7 +117,7 @@ clean_run() {
   fi
   local clean_home=$home clean_work=$work
   platform_environment
-  env -i PATH="$package_path" HOME="$clean_home" TMPDIR="$clean_work" \
+  env -i CAIDO_DEV_BINARY="$CAIDO_DEV_BINARY" PATH="$package_path" HOME="$clean_home" TMPDIR="$clean_work" \
     XDG_CONFIG_HOME="$clean_home" XDG_CACHE_HOME="$clean_home/cache" \
     NPM_CONFIG_USERCONFIG="$clean_home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$clean_home/global.npmrc" \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$clean_home/.gitconfig" GIT_TERMINAL_PROMPT=0 \
