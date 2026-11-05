@@ -18,26 +18,23 @@ case "${1:-}" in
   *) usage >&2; exit 1 ;;
 esac
 [[ $# == 0 || -n $filter ]] || { usage >&2; exit 1; }
-windows=false
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 case "$(uname -s)" in
-  Linux) timeout_command=$(command -v timeout || true) ;;
-  Darwin) timeout_command=$(command -v gtimeout || true) ;;
-  MINGW*|MSYS*) windows=true; timeout_command=/usr/bin/timeout ;;
+  Linux) platform=linux ;;
+  Darwin) platform=macos ;;
+  MINGW*|MSYS*) platform=windows ;;
   *) echo 'Use Linux, macOS, or Git Bash on Windows.' >&2; exit 1 ;;
 esac
-[[ -n $timeout_command && -x $timeout_command ]] || {
-  echo 'GNU timeout is required: install coreutils on Linux, brew install coreutils on macOS, or use Git Bash on Windows.' >&2; exit 1;
-}
+source "$root/scripts/test-community/platforms/$platform.sh"
+platform_check
 for tool in curl jq git ouch pnpm node mise find; do
   command -v "$tool" >/dev/null || { echo "Missing $tool; run mise --env community install --locked (curl, git and GNU coreutils are OS prerequisites)." >&2; exit 1; }
 done
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cli="$root/dist/cli.js"
 fallback_pnpm=$(cd "$root" && mise --env community which pnpm --tool pnpm@10.20.0) || {
   echo 'Missing pnpm 10.20.0; run mise --env community install --locked.' >&2; exit 1;
 }
-# Mise prints native Windows paths; Bash path operations require POSIX paths.
-if $windows; then fallback_pnpm=$(cygpath -u "$fallback_pnpm"); fi
+fallback_pnpm=$(platform_shell_path "$fallback_pnpm")
 [[ -x $fallback_pnpm ]] || { echo "Missing executable: $fallback_pnpm" >&2; exit 1; }
 primary_path=$PATH
 [[ -s $cli ]] || { echo "Missing built CLI: $cli" >&2; exit 1; }
@@ -77,16 +74,7 @@ clean_run() {
     package_env+=(npm_config_manage_package_manager_versions=false)
   fi
   local clean_home=$home clean_work=$work
-  if $windows; then
-    clean_home=$(cygpath -m "$home")
-    clean_work=$(cygpath -m "$work")
-    # Native Node/pnpm need Windows system variables, but never the user's profile.
-    package_env+=("SystemRoot=${SYSTEMROOT:-${SystemRoot:-C:\\Windows}}"
-      "WINDIR=${WINDIR:-C:\\Windows}" "COMSPEC=${COMSPEC:-C:\\Windows\\System32\\cmd.exe}"
-      "PATHEXT=${PATHEXT:-.COM;.EXE;.BAT;.CMD}" "USERPROFILE=$clean_home"
-      "APPDATA=$clean_home/AppData/Roaming" "LOCALAPPDATA=$clean_home/AppData/Local"
-      "TEMP=$clean_work" "TMP=$clean_work")
-  fi
+  platform_environment
   env -i PATH="$package_path" HOME="$clean_home" TMPDIR="$clean_work" \
     XDG_CONFIG_HOME="$clean_home" XDG_CACHE_HOME="$clean_home/cache" \
     NPM_CONFIG_USERCONFIG="$clean_home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$clean_home/global.npmrc" \
