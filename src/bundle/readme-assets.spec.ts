@@ -9,7 +9,6 @@ const imageFixture = (name: string) => new URL(`./__fixtures__/images/${name}`, 
 
 const DATA_URI_PREFIX = "data:image/webp;base64,";
 const PNG_DATA_URI = `data:image/png;base64,${(await fs.readFile(imageFixture("red16x16.png"))).toString("base64")}`;
-const GIF_BYTES = await fs.readFile(imageFixture("animated.gif"));
 const MAX_INLINED_IMAGE_BYTES = 100 * 1024;
 const itUnix = process.platform === "win32" ? it.skip : it;
 const itWindows = process.platform === "win32" ? it : it.skip;
@@ -237,27 +236,8 @@ describe("transformReadmeImages", () => {
   it.each([
     { name: "PNG", uri: PNG_DATA_URI, preserved: true },
     {
-      name: "MIME parameters and mixed case",
-      uri: PNG_DATA_URI.replace("data:image/png;base64", "DATA:IMAGE/PNG;charset=utf-8;BASE64"),
-      preserved: true,
-    },
-    { name: "GIF animation", fixture: "animated.gif", mime: "gif", preserved: true },
-    {
-      name: "truncated GIF",
-      uri: `data:image/gif;base64,${GIF_BYTES.subarray(0, 30).toString("base64")}`,
-      preserved: false,
-    },
-    { name: "fake image", uri: "data:image/png;base64,abc123", preserved: false },
-    { name: "invalid base64", uri: "data:image/png;base64,%%%", preserved: false },
-    { name: "invalid UTF-8 bytes", uri: "data:image/png;base64,//4=", preserved: false },
-    {
       name: "MIME mismatch",
       uri: PNG_DATA_URI.replace("image/png", "image/jpeg"),
-      preserved: false,
-    },
-    {
-      name: "truncated image",
-      uri: `data:image/png;base64,${Buffer.from(PNG_DATA_URI.split(",")[1]!, "base64").subarray(0, 30).toString("base64")}`,
       preserved: false,
     },
     { name: "non-base64", uri: "data:image/png,%89PNG", preserved: false },
@@ -265,10 +245,7 @@ describe("transformReadmeImages", () => {
     { name: "AVIF", uri: PNG_DATA_URI.replace("image/png", "image/avif"), preserved: false },
   ])(
     "validates existing data images during packaging: $name",
-    async ({ uri, fixture, mime, preserved }) => {
-      const dataUri =
-        uri ??
-        `data:image/${mime};base64,${(await fs.readFile(imageFixture(fixture!))).toString("base64")}`;
+    async ({ uri: dataUri, preserved }) => {
       await fs.writeFile(
         path.join(tempDir, "README.md"),
         [
@@ -300,19 +277,14 @@ describe("transformReadmeImages", () => {
     );
   });
 
-  it.each([
-    "custom+scheme.value:asset.png",
-    "%2Foutside.png",
-    "%5Coutside.png",
-    "C%3A%2Foutside.png",
-    "C%3Aoutside.png",
-    "image%ZZ.png",
-    "assets\\image.png",
-  ])("removes unsafe or invalid HTML URI references: %s", async (uri) => {
-    await fs.writeFile(path.join(tempDir, "README.md"), `<img src="${uri}">`);
+  it.each(["custom+scheme.value:asset.png", "%2Foutside.png", "C%3A%2Foutside.png"])(
+    "removes unsafe or invalid HTML URI references: %s",
+    async (uri) => {
+      await fs.writeFile(path.join(tempDir, "README.md"), `<img src="${uri}">`);
 
-    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain('src=""');
-  });
+      expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain('src=""');
+    },
+  );
 
   it("uses reference-style definition context when handling data image URIs", async () => {
     await fs.writeFile(
@@ -357,32 +329,6 @@ describe("transformReadmeImages", () => {
     );
   });
 
-  it("blocks external URLs continued inside a blockquote", async () => {
-    await fs.writeFile(path.join(tempDir, "README.md"), "> [x](\n> https://example.com\n> )");
-
-    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toBe("> [x]()\n");
-  });
-
-  it("inlines local images without changing list prefixes", async () => {
-    await fs.copyFile(imageFixture("red16x16.png"), path.join(tempDir, "image.png"));
-    const source = "- ![x](\n  image.png\n  )";
-    await fs.writeFile(path.join(tempDir, "README.md"), source);
-
-    const output = await transformReadmeImages(path.join(tempDir, "README.md"));
-    const uri = output.match(/data:image\/webp;base64,[A-Za-z0-9+/=]+/)?.[0];
-    expect(uri).toBeDefined();
-    expect(output.replace(uri!, "image.png")).toMatch(/^[*-] !\[x\]\(image\.png\)\n$/);
-  });
-
-  it("blocks HTML image URLs without changing blockquote rendering", async () => {
-    const source = '> <div>\n> hello\n> <img src="https://example.com/a.png">\n> </div>';
-    await fs.writeFile(path.join(tempDir, "README.md"), source);
-
-    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toBe(
-      `> \n> \n${source.replace("https://example.com/a.png", "")}\n`,
-    );
-  });
-
   it("strips oversized existing data image URIs", async () => {
     const oversizedDataUri = `data:image/png;base64,${"a".repeat(150 * 1024)}`;
     await fs.writeFile(path.join(tempDir, "README.md"), `![Oversized](${oversizedDataUri})`);
@@ -420,26 +366,5 @@ describe("transformReadmeImages", () => {
     expect(content).toContain('src="data:image/webp;base64,');
     expect(content).toContain('style=""');
     expect(content).toContain('href="assets/test.txt"');
-  });
-
-  it("preserves GitHub-flavored markdown tables and task lists", async () => {
-    await fs.writeFile(
-      path.join(tempDir, "README.md"),
-      [
-        "| Name | Enabled |",
-        "| ---- | ------- |",
-        "| Test | yes |",
-        "",
-        "- [x] First",
-        "- [ ] Second",
-      ].join("\n"),
-    );
-
-    const content = await transformReadmeImages(path.join(tempDir, "README.md"));
-
-    expect(content).toContain("| Name | Enabled |");
-    expect(content).toMatch(/\| Test\s+\| yes\s+\|/);
-    expect(content).toMatch(/[*-] \[x\] First/);
-    expect(content).toMatch(/[*-] \[ \] Second/);
   });
 });

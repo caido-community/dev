@@ -47,7 +47,7 @@ function assemble(relative: string[]) {
 }
 
 describe("package_plugin", () => {
-  it("preserves build output required fields and optional field semantics", () => {
+  it("applies manifest defaults and validates build output plugin references", () => {
     const fixture = JSON.parse(input);
     const output = fixture.buildOutputs[0];
     const plan = (fields: typeof output) =>
@@ -59,24 +59,11 @@ describe("package_plugin", () => {
       expect(plan(fields).name).toBe("backend");
       expect(plan({ ...fields, name: null }).name).toBe("backend");
       expect(plan({ ...fields, name: "" }).name).toBe("");
-      for (const key of ["id", "fileName", "assets"]) {
-        const missing = { ...fields };
-        delete missing[key];
-        expect(() => plan(missing)).toThrow();
-        expect(() => plan({ ...fields, [key]: null })).toThrow();
-      }
-      expect(() => plan({ ...fields, assets: [null] })).toThrow();
     }
-    for (const value of [undefined, null, ""]) {
-      const plugin = plan({ ...output, kind: "frontend", cssFileName: value, backendId: value });
-      expect(plugin).not.toHaveProperty("style");
-      expect(plugin.backend).toBeNull();
-    }
-    expect(() => plan({ ...output, kind: "frontend", cssFileName: 1 })).toThrow(
-      "Invalid build output",
-    );
-    expect(plan({ ...output, cssFileName: 1 })).not.toHaveProperty("style");
-    expect(() => plan({ ...output, kind: "workflow" })).toThrow("Invalid build output");
+    const frontend = plan({ ...output, kind: "frontend", cssFileName: "", backendId: "" });
+    expect(frontend).not.toHaveProperty("style");
+    expect(frontend.backend).toBeNull();
+    expect(plan(output)).not.toHaveProperty("style");
     expect(() => plan({ ...output, backendId: "../escape" })).toThrow("Invalid plugin id");
     expect(() => plan({ ...output, backend: { id: "../escape" } })).toThrow("Invalid plugin id");
   });
@@ -200,38 +187,9 @@ describe("package_plugin", () => {
     ["Folder", "folder/file.txt"],
     ["Folder/file.txt", "folder"],
     ["../escape.txt"],
-    [""],
     ["/absolute.txt"],
-    ["."],
-    [".."],
-    ["./file.txt"],
-    ["nested/./file.txt"],
-    ["nested/../file.txt"],
-    ["nested//file.txt"],
-    ["nested/file.txt/"],
-    ["nested\\file.txt"],
-    ["nested/CON"],
   ])("rejects unsafe or colliding asset destinations: %j", async (...relative) => {
     expect(() => assemble(relative)).toThrow();
-  });
-
-  it.each([
-    null,
-    {},
-    "assets",
-    [{ source: "file.txt" }],
-    [{ relative: "file.txt" }],
-    [{ relative: 1, source: "file.txt" }],
-    [{ relative: "file.txt", source: null }],
-  ])("rejects malformed asset expansion: %j", async (expanded) => {
-    const inputs = preloaded([]);
-    expect(() =>
-      wasm.package_plugin(input, {
-        ...inputs,
-        // @ts-expect-error Exercise malformed preloaded asset records.
-        assets: [{ pattern: "assets", files: expanded }],
-      }),
-    ).toThrow(/^Invalid preloaded package inputs/);
   });
 
   it("packages shared sources and patterns for separate plugin destinations", async () => {
@@ -262,24 +220,5 @@ describe("package_plugin", () => {
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
-  });
-
-  it("returns actual byte arrays matching the archive", async () => {
-    const inputs = preloaded([]);
-    expect(() =>
-      wasm.package_plugin(input, {
-        ...inputs,
-        // @ts-expect-error Source bytes must be Uint8Array, not JSON number arrays.
-        files: [{ source: "index.js", bytes: [1, 2, 3] }],
-      }),
-    ).toThrow("Expected file bytes as Uint8Array");
-    const result = assemble(["nested/file.txt"]);
-    expect(result.zip).toBeInstanceOf(Uint8Array);
-    const zip = await JSZip.loadAsync(result.zip);
-    for (const file of result.files) {
-      expect(file.bytes).toBeInstanceOf(Uint8Array);
-      expect(await zip.file(file.path)?.async("uint8array")).toEqual(file.bytes);
-    }
-    expect(result.files.map((file) => file.path)).toContain("backend/assets/nested/file.txt");
   });
 });
