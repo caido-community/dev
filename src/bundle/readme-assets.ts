@@ -9,6 +9,9 @@ import { type ReadmeEncoder, wasm } from "../wasm";
 
 import { checkedProjectPath } from "./filesystem";
 
+const MAX_LOCAL_IMAGE_BYTES = 64 * 1024 * 1024;
+const READ_CHUNK_BYTES = 64 * 1024;
+
 const require = createRequire(import.meta.url);
 let encoderReady: Promise<void> | undefined;
 
@@ -35,7 +38,36 @@ export async function readAsset(directory: string, pathname: string, url: string
     `README asset path escapes project root: ${url}`,
     false,
   );
-  return fs.readFile(file);
+  const handle = await fs.open(file, "r");
+  try {
+    const oversized = () =>
+      new Error(
+        `README image ${url} exceeds the 64 MiB (${MAX_LOCAL_IMAGE_BYTES} byte) source limit`,
+      );
+    if ((await handle.stat()).size > MAX_LOCAL_IMAGE_BYTES) throw oversized();
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    // Read one extra byte to detect growth after stat without an unbounded read.
+    while (total <= MAX_LOCAL_IMAGE_BYTES) {
+      const chunk = Buffer.allocUnsafe(
+        Math.min(READ_CHUNK_BYTES, MAX_LOCAL_IMAGE_BYTES + 1 - total),
+      );
+      const { bytesRead } = await handle.read({
+        buffer: chunk,
+        offset: 0,
+        length: chunk.length,
+        position: null,
+      });
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > MAX_LOCAL_IMAGE_BYTES) throw oversized();
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function compressImageToWebpDataUri(directory: string, url: string): Promise<string> {
