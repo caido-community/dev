@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 
+import type { BuildOutput, CaidoConfig } from "./types";
+
 const require = createRequire(import.meta.url);
 
 // The generated module loads its adjacent WebAssembly binary synchronously.
@@ -9,9 +11,9 @@ const modulePath = import.meta.url.endsWith("/src/wasm.ts")
 // SAFETY: modulePath selects our wasm-bindgen output built from rust/src/lib.rs;
 // these signatures mirror its exported functions and callback contracts.
 export const wasm = require(modulePath) as {
-  parse_cli: (args: string) => string;
+  parse_cli: (args: string[]) => CliResponse;
   plan_package: (input: string) => string;
-  package_plugin: (input: string, preloaded: PreloadedPackageInputs) => WasmPackageResult;
+  package_plugin: (input: PackageInput, preloaded: PreloadedPackageInputs) => WasmPackageResult;
   create_zip: (entries: string, contents: Uint8Array) => Uint8Array;
   readme_local_path: (url: string) => string;
   convert_readme_image: (
@@ -23,12 +25,23 @@ export const wasm = require(modulePath) as {
     content: string,
     readAsset: (pathname: string, url: string) => Promise<Uint8Array>,
     encode: ReadmeEncoder,
-  ) => Promise<string>;
+  ) => Promise<ReadmeResult>;
   readme_assets: (content: string) => string;
   transform_readme: (content: string, replacements: string) => string;
 };
 
-export type ReadmeResult = {
+type PackageInput = {
+  config: CaidoConfig;
+  buildOutputs: BuildOutput[];
+};
+
+type CliResponse =
+  | { command: "build"; path?: string; config?: string }
+  | { command: "watch"; path?: string; config?: string }
+  | { command: "help"; help: string }
+  | { command: "version" };
+
+type ReadmeResult = {
   content: string;
   warnings: string[];
   messages: string[];

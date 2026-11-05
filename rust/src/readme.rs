@@ -18,6 +18,14 @@ use typed_path::{Utf8UnixPath, Utf8WindowsComponent, Utf8WindowsPath};
 const MAX_URI_BYTES: usize = (100_usize * 1024 * 4).div_ceil(3) + "data:image/webp;base64,".len();
 const MAX_README_BYTES: usize = 2 * 1024 * 1024;
 
+#[derive(serde::Deserialize, serde::Serialize)]
+pub(crate) struct ReadmeResult {
+    pub(crate) content: String,
+    pub(crate) warnings: Vec<String>,
+    #[serde(default)]
+    pub(crate) messages: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Context {
     Image,
@@ -334,10 +342,26 @@ fn process<'a>(
     Ok((output, work))
 }
 
+pub(crate) fn asset_urls(content: &str) -> Result<Vec<String>, String> {
+    let (_, work) = process(content, None)?;
+    Ok(work.assets)
+}
+
+pub(crate) fn transform_content(
+    content: &str,
+    replacements: &HashMap<String, String>,
+) -> Result<ReadmeResult, String> {
+    let (content, work) = process(content, Some(replacements))?;
+    Ok(ReadmeResult {
+        content,
+        warnings: work.warnings,
+        messages: Vec::new(),
+    })
+}
+
 /// Return a JSON array of distinct local image URLs, in source traversal order.
 pub fn assets(content: &str) -> Result<String, String> {
-    let (_, work) = process(content, None)?;
-    serde_json::to_string(&work.assets).map_err(|e| e.to_string())
+    serde_json::to_string(&asset_urls(content)?).map_err(|e| e.to_string())
 }
 
 /// Replace local images using a JSON object keyed by the original trimmed URL.
@@ -345,6 +369,6 @@ pub fn assets(content: &str) -> Result<String, String> {
 pub fn transform(content: &str, replacements_json: &str) -> Result<String, String> {
     let replacements: HashMap<String, String> = serde_json::from_str(replacements_json)
         .map_err(|e| format!("Invalid README replacements: {e}"))?;
-    let (content, work) = process(content, Some(&replacements))?;
-    Ok(json!({ "content": content, "warnings": work.warnings }).to_string())
+    let result = transform_content(content, &replacements)?;
+    Ok(json!({ "content": result.content, "warnings": result.warnings }).to_string())
 }

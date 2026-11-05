@@ -44,12 +44,14 @@ struct PreparedPackage {
     messages: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub(crate) struct ReadmeResult {
-    pub(crate) content: String,
-    pub(crate) warnings: Vec<String>,
-    #[serde(default)]
-    pub(crate) messages: Vec<String>,
+use crate::readme::ReadmeResult;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PackageInput {
+    config: Value,
+    build_outputs: Vec<Value>,
+    manifest: Option<Value>,
 }
 
 #[derive(Default)]
@@ -316,12 +318,9 @@ fn plan_output(
     .map_err(|e| e.to_string())
 }
 
-fn package_plan(input: &str) -> Result<PackagePlan, String> {
-    // Parse only the fields packaging owns; user config is validated before builds.
-    let input: Value =
-        serde_json::from_str(input).map_err(|e| format!("Invalid package input: {e}"))?;
-    let config = input
-        .get("config")
+fn package_plan(input: PackageInput) -> Result<PackagePlan, String> {
+    // Inspect only the fields packaging owns; user config is validated before builds.
+    let config = Some(&input.config)
         .filter(|v| v.is_object())
         .ok_or("Expected config object")?;
     validate_id(string(config, "id")?)?;
@@ -330,29 +329,22 @@ fn package_plan(input: &str) -> Result<PackagePlan, String> {
         .and_then(Value::as_array)
         .ok_or("Expected config.plugins array")?;
     validate_ids(configured)?;
-    let outputs = input
-        .get("buildOutputs")
-        .and_then(Value::as_array)
-        .ok_or("Expected buildOutputs array")?;
+    let outputs = &input.build_outputs;
     validate_ids(outputs)?;
-    let mut manifest = input
-        .get("manifest")
-        .filter(|v| v.is_object())
-        .cloned()
-        .unwrap_or_else(|| {
-            let mut fields = serde_json::Map::new();
-            for key in ["id", "name", "version", "description", "author"] {
-                if let Some(value) = config.get(key) {
-                    fields.insert(key.to_owned(), value.clone());
-                }
+    let mut manifest = input.manifest.filter(|v| v.is_object()).unwrap_or_else(|| {
+        let mut fields = serde_json::Map::new();
+        for key in ["id", "name", "version", "description", "author"] {
+            if let Some(value) = config.get(key) {
+                fields.insert(key.to_owned(), value.clone());
             }
-            fields.insert(
-                "links".into(),
-                config.get("links").cloned().unwrap_or_else(|| json!({})),
-            );
-            fields.insert("plugins".into(), json!([]));
-            Value::Object(fields)
-        });
+        }
+        fields.insert(
+            "links".into(),
+            config.get("links").cloned().unwrap_or_else(|| json!({})),
+        );
+        fields.insert("plugins".into(), json!([]));
+        Value::Object(fields)
+    });
     if let Some(id) = manifest.get("id") {
         validate_id(id.as_str().ok_or("Expected manifest.id string")?)?;
     }
@@ -384,6 +376,7 @@ fn package_plan(input: &str) -> Result<PackagePlan, String> {
 
 pub(crate) fn plan(input: &str) -> Result<String, String> {
     // Preserve the legacy JSON object's field order as well as its shape.
+    let input = serde_json::from_str(input).map_err(|e| format!("Invalid package input: {e}"))?;
     let plan = package_plan(input)?;
     Ok(json!({"manifest":plan.manifest,"copies":plan.copies,"assets":plan.assets}).to_string())
 }

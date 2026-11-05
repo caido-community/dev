@@ -5,12 +5,7 @@ import { z } from "zod";
 
 import type { BuildOutput } from "../types";
 import { expandPackageAssets } from "../utils/cp";
-import {
-  type PreloadedPackageInputs,
-  type ReadmeResult,
-  type WasmPackageResult,
-  wasm,
-} from "../wasm";
+import { type PreloadedPackageInputs, type WasmPackageResult, wasm } from "../wasm";
 
 import { checkedProjectPath, contains, normalized } from "./filesystem";
 import { encodeImage, readAsset } from "./readme-assets";
@@ -31,10 +26,7 @@ export async function preloadPackageInputs(
   const content = new TextDecoder("utf-8", { fatal: true }).decode(
     await host.readFile("README.md"),
   );
-  // SAFETY: bundle_readme serializes this result from Rust's ReadmeResult.
-  const readme = JSON.parse(
-    await wasm.bundle_readme(content, host.readAsset, encodeImage),
-  ) as ReadmeResult;
+  const readme = await wasm.bundle_readme(content, host.readAsset, encodeImage);
   const files = new Map<string, Uint8Array>();
   const assets = new Map<string, { source: string; relative: string }[]>();
   async function preload(source: string): Promise<void> {

@@ -36,21 +36,19 @@ pub async fn bundle_readme(
     content: String,
     read_asset: js_sys::Function,
     encode: js_sys::Function,
-) -> Result<String, JsValue> {
+) -> Result<JsValue, JsValue> {
     let result = bundle_readme_result(content, read_asset, encode).await?;
-    // Keep the public JSON field order used by existing callers.
-    Ok(serde_json::json!({"content": result.content, "warnings": result.warnings, "messages": result.messages}).to_string())
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|error| JsValue::from_str(&format!("Invalid README output: {error}")))
 }
 
 async fn bundle_readme_result(
     content: String,
     read_asset: js_sys::Function,
     encode: js_sys::Function,
-) -> Result<package::ReadmeResult, JsValue> {
-    let assets = readme::assets(&content).map_err(|error| JsValue::from_str(&error))?;
-    let urls: Vec<String> =
-        serde_json::from_str(&assets).map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let mut replacements = serde_json::Map::new();
+) -> Result<readme::ReadmeResult, JsValue> {
+    let urls = readme::asset_urls(&content).map_err(|error| JsValue::from_str(&error))?;
+    let mut replacements = std::collections::HashMap::new();
     let mut messages = Vec::new();
     for url in urls {
         let pending = read_asset.call2(
@@ -67,16 +65,11 @@ async fn bundle_readme_result(
         }
         let converted =
             readme_image::convert(&js_sys::Uint8Array::new(&bytes).to_vec(), &url, &encode).await?;
-        replacements.insert(url, serde_json::Value::String(converted.url));
+        replacements.insert(url, converted.url);
         messages.push(converted.message);
     }
-    let transformed = readme::transform(
-        &content,
-        &serde_json::Value::Object(replacements).to_string(),
-    )
-    .map_err(|error| JsValue::from_str(&error))?;
-    let mut result: package::ReadmeResult = serde_json::from_str(&transformed)
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let mut result = readme::transform_content(&content, &replacements)
+        .map_err(|error| JsValue::from_str(&error))?;
     result.messages = messages;
     Ok(result)
 }
@@ -85,14 +78,21 @@ use wasm_bindgen::prelude::*;
 
 /// Parse user arguments (process.argv.slice(2)) without performing any I/O.
 #[wasm_bindgen]
-pub fn parse_cli(args_json: &str) -> Result<String, JsValue> {
-    cli::parse(args_json).map_err(|error| JsValue::from_str(&error))
+pub fn parse_cli(args: JsValue) -> Result<JsValue, JsValue> {
+    let args = serde_wasm_bindgen::from_value(args)
+        .map_err(|error| JsValue::from_str(&format!("Invalid CLI arguments: {error}")))?;
+    let response = cli::parse(args).map_err(|error| JsValue::from_str(&error))?;
+    serde::Serialize::serialize(
+        &response,
+        &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 /// Assemble a complete package before the host changes its output directory.
 #[wasm_bindgen]
-pub fn package_plugin(input: String, preloaded: JsValue) -> Result<JsValue, JsValue> {
-    package::assemble(&input, preloaded)
+pub fn package_plugin(input: JsValue, preloaded: JsValue) -> Result<JsValue, JsValue> {
+    package::assemble(input, preloaded)
 }
 
 /// Plan copies and manifest entries; filesystem and glob expansion stay in JS.

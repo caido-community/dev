@@ -71,7 +71,9 @@ fn into_js(package: PreparedPackage) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(&output).map_err(|e| error(format!("Invalid package output: {e}")))
 }
 
-pub(crate) fn assemble(input: &str, preloaded: JsValue) -> Result<JsValue, JsValue> {
+pub(crate) fn assemble(input: JsValue, preloaded: JsValue) -> Result<JsValue, JsValue> {
+    let input = serde_wasm_bindgen::from_value(input)
+        .map_err(|e| error(format!("Invalid package input: {e}")))?;
     let plan = package_plan(input).map_err(error)?;
     let preloaded: PackageInputs = serde_wasm_bindgen::from_value(preloaded)
         .map_err(|e| error(format!("Invalid preloaded package inputs: {e}")))?;

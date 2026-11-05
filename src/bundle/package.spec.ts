@@ -43,7 +43,7 @@ function preloaded(relative: string[]) {
 }
 
 function assemble(relative: string[]) {
-  return wasm.package_plugin(input, preloaded(relative));
+  return wasm.package_plugin(JSON.parse(input), preloaded(relative));
 }
 
 describe("package_plugin", () => {

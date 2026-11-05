@@ -5,7 +5,7 @@ import path from "node:path";
 import encode, { init as initWebpEncoder } from "@jsquash/webp/encode.js";
 
 import { logInfo } from "../utils";
-import { type ReadmeEncoder, type ReadmeResult, wasm } from "../wasm";
+import { type ReadmeEncoder, wasm } from "../wasm";
 
 import { checkedProjectPath } from "./filesystem";
 
@@ -47,14 +47,11 @@ export async function compressImageToWebpDataUri(directory: string, url: string)
 
 export async function transformReadmeImages(readmePath: string): Promise<string> {
   const content = await fs.readFile(readmePath, "utf-8");
-  // SAFETY: bundle_readme serializes Rust's ReadmeResult.
-  const result = JSON.parse(
-    await wasm.bundle_readme(
-      content,
-      (pathname, url) => readAsset(path.dirname(readmePath), pathname, url),
-      encodeImage,
-    ),
-  ) as ReadmeResult;
+  const result = await wasm.bundle_readme(
+    content,
+    (pathname, url) => readAsset(path.dirname(readmePath), pathname, url),
+    encodeImage,
+  );
   for (const message of [...result.messages, ...result.warnings]) logInfo(message);
   return result.content;
 }

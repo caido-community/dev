@@ -1,20 +1,11 @@
 #!/usr/bin/env node
-import { z } from "zod";
-
 import { version } from "../package.json";
 
 import { build, watch } from "./commands";
 import { wasm } from "./wasm";
 
 try {
-  const options = z
-    .object({
-      command: z.enum(["build", "watch", "help", "version"]),
-      path: z.string().optional(),
-      config: z.string().optional(),
-      help: z.string().optional(),
-    })
-    .parse(JSON.parse(wasm.parse_cli(JSON.stringify(process.argv.slice(2)))));
+  const options = wasm.parse_cli(process.argv.slice(2));
   switch (options.command) {
     case "build":
       await build(options);

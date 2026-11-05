@@ -16,7 +16,7 @@ export async function bundlePackage(options: {
     pluginRoots: config.plugins.map((plugin) => plugin.root),
   });
   const preloaded = await preloadPackageInputs(host, buildOutputs);
-  const result = wasm.package_plugin(JSON.stringify({ config, buildOutputs }), preloaded);
+  const result = wasm.package_plugin({ config, buildOutputs }, preloaded);
   for (const message of result.messages) logInfo(message);
   await host.writePackage(result);
   logSuccess("Plugin package zip file created successfully");

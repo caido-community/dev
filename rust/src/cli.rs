@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use clap::{error::ErrorKind, Args, Parser, Subcommand};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
@@ -31,7 +31,7 @@ struct Cli {
 
 #[derive(Subcommand, Serialize)]
 #[serde(tag = "command", rename_all = "lowercase")]
-enum CliCommand {
+pub(crate) enum CliCommand {
     #[command(about = "Build the Caido plugin")]
     Build(PathOptions),
     #[command(about = "Start development server and watch for changes")]
@@ -39,7 +39,7 @@ enum CliCommand {
 }
 
 #[derive(Args, Serialize)]
-struct PathOptions {
+pub(crate) struct PathOptions {
     #[arg(value_name = "path")]
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
@@ -60,21 +60,35 @@ struct ConfigOptions {
     config: Option<String>,
 }
 
-pub(crate) fn parse(input: &str) -> Result<String, String> {
-    let args: Vec<String> =
-        serde_json::from_str(input).map_err(|e| format!("Invalid CLI arguments: {e}"))?;
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum CliResponse {
+    Command(CliCommand),
+    Display(DisplayResponse),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "command", rename_all = "lowercase")]
+pub(crate) enum DisplayResponse {
+    Help { help: String },
+    Version,
+}
+
+pub(crate) fn parse(args: Vec<String>) -> Result<CliResponse, String> {
     let cli = match Cli::try_parse_from(std::iter::once("caido-dev".to_owned()).chain(args)) {
         Ok(cli) => cli,
         Err(error) => {
             return match error.kind() {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
-                    Ok(json!({"command":"help","help":error.to_string()}).to_string())
+                    Ok(CliResponse::Display(DisplayResponse::Help {
+                        help: error.to_string(),
+                    }))
                 }
-                ErrorKind::DisplayVersion => Ok(json!({"command":"version"}).to_string()),
+                ErrorKind::DisplayVersion => Ok(CliResponse::Display(DisplayResponse::Version)),
                 _ => Err(error.to_string()),
             };
         }
     };
     let command = cli.command.ok_or("Expected a command")?;
-    serde_json::to_string(&command).map_err(|error| error.to_string())
+    Ok(CliResponse::Command(command))
 }
