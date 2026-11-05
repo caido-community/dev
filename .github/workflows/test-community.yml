@@ -1,0 +1,85 @@
+name: Test community plugins
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/bundle/**"
+      - "src/build/**"
+      - "src/manifest.ts"
+      - "src/config.ts"
+      - "src/types.ts"
+      - "src/utils/**"
+      - "src/wasm.ts"
+      - "rust/**"
+      - "scripts/build-wasm.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsup.config.ts"
+      - "tsconfig.json"
+      - ".mise/**"
+      - "mise.toml"
+      - "scripts/test-community/**"
+      - ".github/workflows/test-community.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-community:
+    # Advisory compatibility results must not block merging.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      MISE_ENV: community
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install macOS prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          softwareupdate --install-rosetta --agree-to-license
+          brew install coreutils
+
+      - name: Install Mise tools
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          working_directory: .
+          version: ${{ vars.CI__MISE_VERSION }}
+          install_args: --locked
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package community plugins
+        run: |
+          export TMPDIR="$(cd "$RUNNER_TEMP" && pwd)"
+          mise run test-community
+
+      - name: Upload packaging failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: community-packaging-logs-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/caido-community-test.*/summary.log
+            ${{ runner.temp }}/caido-community-test.*/*/clone.log
+            ${{ runner.temp }}/caido-community-test.*/*/install.log
+            ${{ runner.temp }}/caido-community-test.*/*/install-pnpm10.log
+            ${{ runner.temp }}/caido-community-test.*/*/build.log
+            ${{ runner.temp }}/caido-community-test.*/*/archive.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,57 @@
+name: Report community packaging
+
+on:
+  # Only GitHub job metadata is consumed; no PR code or artifacts are executed.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: ["Test community plugins"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  report:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      # Do not check out PR code or consume artifacts in this privileged workflow.
+      - name: Comment with compatibility results
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const pulls = run.pull_requests || [];
+            if (pulls.length === 0) {
+              core.warning('No pull request associated with this run; skipping comment.');
+              return;
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            });
+            const platforms = ['ubuntu-latest', 'windows-latest', 'macos-latest'];
+            const rows = platforms.map(platform => {
+              const job = jobs.find(job => job.name === `test-community (${platform})`);
+              const failed = job?.steps?.find(step => step.conclusion === 'failure');
+              const result = failed ? `Failed: ${failed.name}` : (job?.conclusion || 'Not reported');
+              return `| ${platform} | ${result} |`;
+            });
+            const body = [
+              '<!-- community-packaging-results -->',
+              '### Community plugin packaging',
+              '',
+              `Advisory results for commit \`${run.head_sha}\` — these do not block merging.`,
+              '',
+              '| Platform | Result |',
+              '| --- | --- |',
+              ...rows,
+              '',
+              `[View repository-level PASS/FAIL output and download failure logs](${run.html_url}).`,
+              'Failure-log artifacts are retained for seven days. Results depend on the live store, plugin default branches, and registries.',
+            ].join('\n');
+            for (const pull of pulls) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pull.number, body });
+            }
