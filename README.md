@@ -24,6 +24,28 @@ pnpm install -D @caido-community/dev
 
 You can then access the binary via `caido-dev`. If you installed it local to your package, it can be run using `pnpm exec caido-dev`.
 
+## Community packaging integration test
+
+On Linux, macOS Apple Silicon, or Windows x64 (Git Bash), run:
+
+```bash
+mise --env community install --locked
+mise exec --env community -- pnpm install --frozen-lockfile
+mise --env community run test-community
+```
+
+This opt-in network test builds this checkout with `build:prod`, fetches the live [plugin store index](https://raw.githubusercontent.com/caido/store/main/plugin_packages.json), and attempts to package every unique `caido-community` repository with this checkout's CLI. It checks the resulting ZIP, README, manifest, and plugin entrypoints. It is separate from pull-request validation.
+
+The community Mise environment pins Node.js 24, pnpm 11.18.0, pnpm 10.20.0 as an install fallback, jq, and ouch. Downloads are locked for Linux x64/ARM64, Windows x64, and macOS ARM64. Bash, curl, Git, find, and GNU timeout are OS prerequisites. On macOS, install coreutils (`brew install coreutils`) and Rosetta (`softwareupdate --install-rosetta --agree-to-license`) for ouch's Intel binary. On Windows, use Git Bash.
+
+Each repository is shallow-cloned into a temporary directory. Failed primary installs get one pnpm 10.20.0 retry after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Automatic package-manager switching is disabled for the retry and subsequent build. Clone, install, build, and decompression each have ten-minute timeouts. All repositories are attempted; failures produce a nonzero exit code and retain temporary clones and per-stage logs at the printed path. Successful runs remove temporary files.
+
+To test one listed repository, run `mise --env community run test-community -- --repository caido-community/authmatrix`.
+
+The **Test community plugins** GitHub Actions workflow runs the full sweep on disposable Ubuntu, Windows, and macOS runners via **Actions → Test community plugins → Run workflow**. It uses read-only repository permissions and does not persist checkout credentials. Configure the repository Actions variable `CI__MISE_VERSION` for the Mise setup action.
+
+**Security:** this runs third-party installation scripts and build hooks. Use a disposable environment without credentials or sensitive files, never a privileged self-hosted runner. Child processes receive an allowlisted environment and isolated home, but this is not a sandbox. Results depend on the live store, repository default branches, registries, and network availability.
+
 ## 📟 CLI Commands
 
 ### Build

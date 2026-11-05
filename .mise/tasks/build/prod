@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build the CLI and library"
+set -euo pipefail
+pnpm build
