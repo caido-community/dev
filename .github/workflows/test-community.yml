@@ -2,12 +2,34 @@ name: Test community plugins
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/bundle/**"
+      - "src/build/**"
+      - "src/manifest.ts"
+      - "src/config.ts"
+      - "src/types.ts"
+      - "src/utils/**"
+      - "src/wasm.ts"
+      - "rust/**"
+      - "scripts/build-wasm.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsup.config.ts"
+      - "tsconfig.json"
+      - ".mise/**"
+      - "mise.toml"
+      - "scripts/test-community/**"
+      - ".github/workflows/test-community.yml"
 
 permissions:
   contents: read
 
 jobs:
   test-community:
+    # Advisory compatibility results must not block merging.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
