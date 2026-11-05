@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use comrak::{format_commonmark, nodes::NodeValue, parse_document, Arena, Options};
+use fluent_uri::{component::Scheme, IriRef};
 use html5ever::serialize::Serializer;
 use html5ever::{
     buffer_queue::BufferQueue,
@@ -12,6 +13,7 @@ use html5ever::{
     QualName,
 };
 use serde_json::json;
+use typed_path::{Utf8UnixPath, Utf8WindowsComponent, Utf8WindowsPath};
 
 const MAX_URI_BYTES: usize = (100_usize * 1024 * 4).div_ceil(3) + "data:image/webp;base64,".len();
 const MAX_README_BYTES: usize = 2 * 1024 * 1024;
@@ -35,7 +37,13 @@ enum Kind {
 /// Decode the pathname only, matching decodeURIComponent's all-or-nothing behavior.
 /// The host must still check containment and symlinks before opening this path.
 pub fn local_path(url: &str) -> String {
-    let pathname = url.split(['?', '#']).next().unwrap_or(url);
+    // Raw HTML permits spaces in local filenames. Escape only for parsing, without
+    // resolving against a base URL or normalizing filesystem path segments.
+    let escaped = url.replace(' ', "%20");
+    let Ok(reference) = IriRef::parse(escaped.as_str()) else {
+        return url.to_owned();
+    };
+    let pathname = reference.path().as_str();
     js_sys::decode_uri_component(pathname)
         .map(String::from)
         .unwrap_or_else(|_| pathname.to_owned())
@@ -47,7 +55,8 @@ fn data_image(url: &str) -> bool {
     let Some((header, _)) = url.split_once(',') else {
         return false;
     };
-    // The parser also supports percent-encoded bodies; README images require base64.
+    // data-url keeps its encoding flag private. This is a base64-only policy
+    // check, not MIME parsing; the parser below handles MIME and body decoding.
     if !header
         .rsplit(';')
         .next()
@@ -62,12 +71,15 @@ fn data_image(url: &str) -> bool {
     if !mime.type_.eq_ignore_ascii_case("image") {
         return false;
     }
-    let format = match mime.subtype.to_ascii_lowercase().as_str() {
-        "png" => image::ImageFormat::Png,
-        "jpeg" | "jpg" => image::ImageFormat::Jpeg,
-        "gif" => image::ImageFormat::Gif,
-        "webp" => image::ImageFormat::WebP,
-        _ => return false,
+    // Use the parsed MIME essence; parameters are not part of the image format.
+    let essence = format!("{}/{}", mime.type_, mime.subtype).to_ascii_lowercase();
+    let format = image::ImageFormat::from_mime_type(&essence).or_else(|| {
+        // Preserve the existing nonstandard JPEG alias.
+        mime.matches("image", "jpg")
+            .then_some(image::ImageFormat::Jpeg)
+    });
+    let Some(format) = format else {
+        return false;
     };
     let mut bytes = Vec::new();
     let decoded = data.decode(|chunk| {
@@ -83,41 +95,36 @@ fn classify(url: &str) -> Kind {
     if url.is_empty() {
         return Kind::Empty;
     }
-    if url.starts_with('#') {
+    let escaped = url.replace(' ', "%20");
+    let Ok(reference) = IriRef::parse(escaped.as_str()) else {
+        return Kind::Blocked;
+    };
+    if let Some(scheme) = reference.scheme() {
+        return if scheme == Scheme::new_or_panic("data") {
+            Kind::DataImage
+        } else {
+            Kind::Blocked
+        };
+    }
+    if reference.authority().is_some() {
+        return Kind::Blocked;
+    }
+    if reference.path().is_empty() && reference.query().is_none() && reference.fragment().is_some()
+    {
         return Kind::Fragment;
     }
-    if url
-        .get(..5)
-        .is_some_and(|s| s.eq_ignore_ascii_case("data:"))
-    {
-        return Kind::DataImage;
-    }
     let path = local_path(url);
-    let bytes = url.as_bytes();
-    let scheme = bytes.first().is_some_and(u8::is_ascii_alphabetic)
-        && url.find(':').is_some_and(|end| {
-            bytes[1..end]
-                .iter()
-                .all(|b| b.is_ascii_alphanumeric() || b"+.-".contains(b))
-        });
-    let path_bytes = path.as_bytes();
-    let drive_absolute = path_bytes.len() >= 3
-        && path_bytes[0].is_ascii_alphabetic()
-        && path_bytes[1] == b':'
-        && matches!(path_bytes[2], b'/' | b'\\');
-    if scheme
-        || url.starts_with("//")
-        || url.starts_with("\\\\")
-        || path.starts_with('/')
-        || path.starts_with('\\')
-        || drive_absolute
+    let windows = Utf8WindowsPath::new(&path);
+    if Utf8UnixPath::new(&path).has_root()
+        || windows.has_root()
+        || matches!(
+            windows.components().next(),
+            Some(Utf8WindowsComponent::Prefix(_))
+        )
     {
         return Kind::Blocked;
     }
-    let filename = path.rsplit(['/', '\\']).next().unwrap_or(&path);
-    let extension = filename
-        .rsplit_once('.')
-        .map(|(_, ext)| ext.to_ascii_lowercase());
+    let extension = windows.extension().map(str::to_ascii_lowercase);
     if extension.is_some_and(|ext| {
         matches!(
             ext.as_str(),

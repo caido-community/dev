@@ -288,6 +288,32 @@ describe("transformReadmeImages", () => {
     },
   );
 
+  it("parses Unicode local HTML image paths with spaces, queries, and fragments", async () => {
+    await fs.copyFile(imageFixture("red16x16.png"), path.join(tempDir, "café image.PNG"));
+    await fs.writeFile(
+      path.join(tempDir, "README.md"),
+      '<img src="café image.PNG?version=1#preview">',
+    );
+
+    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain(
+      'src="data:image/webp;base64,',
+    );
+  });
+
+  it.each([
+    "custom+scheme.value:asset.png",
+    "%2Foutside.png",
+    "%5Coutside.png",
+    "C%3A%2Foutside.png",
+    "C%3Aoutside.png",
+    "image%ZZ.png",
+    "assets\\image.png",
+  ])("removes unsafe or invalid HTML URI references: %s", async (uri) => {
+    await fs.writeFile(path.join(tempDir, "README.md"), `<img src="${uri}">`);
+
+    expect(await transformReadmeImages(path.join(tempDir, "README.md"))).toContain('src=""');
+  });
+
   it("uses reference-style definition context when handling data image URIs", async () => {
     await fs.writeFile(
       path.join(tempDir, "README.md"),

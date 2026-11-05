@@ -29,19 +29,85 @@ const input = JSON.stringify({
   ],
 });
 
+function preloaded(relative: string[]) {
+  return {
+    files: [...new Set(["index.js", ...relative])].map((source) => ({
+      source,
+      bytes: new TextEncoder().encode(source),
+    })),
+    assets: [
+      { pattern: "assets", files: relative.map((source) => ({ relative: source, source })) },
+    ],
+    readme: { content: "# Package", warnings: [], messages: [] },
+  };
+}
+
 function assemble(relative: string[]) {
-  return wasm.package_plugin(
-    input,
-    (source) =>
-      Promise.resolve(new TextEncoder().encode(source === "README.md" ? "# Package" : source)),
-    () => Promise.resolve(relative.map((name) => ({ relative: name, source: name }))),
-    () => Promise.reject(new Error("Unexpected README asset")),
-    () => Promise.reject(new Error("Unexpected encoding")),
-    () => true,
-  );
+  return wasm.package_plugin(input, preloaded(relative));
 }
 
 describe("package_plugin", () => {
+  it("preserves build output required fields and optional field semantics", () => {
+    const fixture = JSON.parse(input);
+    const output = fixture.buildOutputs[0];
+    const plan = (fields: typeof output) =>
+      JSON.parse(wasm.plan_package(JSON.stringify({ ...fixture, buildOutputs: [fields] }))).manifest
+        .plugins[0];
+
+    for (const kind of ["frontend", "backend"]) {
+      const fields = { ...output, kind };
+      expect(plan(fields).name).toBe("backend");
+      expect(plan({ ...fields, name: null }).name).toBe("backend");
+      expect(plan({ ...fields, name: "" }).name).toBe("");
+      for (const key of ["id", "fileName", "assets"]) {
+        const missing = { ...fields };
+        delete missing[key];
+        expect(() => plan(missing)).toThrow();
+        expect(() => plan({ ...fields, [key]: null })).toThrow();
+      }
+      expect(() => plan({ ...fields, assets: [null] })).toThrow();
+    }
+    for (const value of [undefined, null, ""]) {
+      const plugin = plan({ ...output, kind: "frontend", cssFileName: value, backendId: value });
+      expect(plugin).not.toHaveProperty("style");
+      expect(plugin.backend).toBeNull();
+    }
+    expect(() => plan({ ...output, kind: "frontend", cssFileName: 1 })).toThrow(
+      "Invalid build output",
+    );
+    expect(plan({ ...output, cssFileName: 1 })).not.toHaveProperty("style");
+    expect(() => plan({ ...output, kind: "workflow" })).toThrow("Invalid build output");
+    expect(() => plan({ ...output, backendId: "../escape" })).toThrow("Invalid plugin id");
+    expect(() => plan({ ...output, backend: { id: "../escape" } })).toThrow("Invalid plugin id");
+  });
+
+  it("preserves supplied manifest fields and order while validating referenced ids", () => {
+    const fixture = JSON.parse(input);
+    const manifest = {
+      extension: { nested: true },
+      plugins: [{ extra: "retained", id: "supplied", backendId: "" }],
+      id: "package",
+      name: "Supplied",
+    };
+    const plan = (config = fixture.config, supplied = manifest) =>
+      JSON.parse(
+        wasm.plan_package(JSON.stringify({ config, manifest: supplied, buildOutputs: [] })),
+      ).manifest;
+    expect(JSON.stringify(plan())).toBe(JSON.stringify(manifest));
+    expect(() =>
+      plan({ ...fixture.config, plugins: [{ id: "configured", backendId: "../escape" }] }),
+    ).toThrow("Invalid plugin id");
+    expect(() =>
+      plan(fixture.config, { ...manifest, plugins: [{ ...manifest.plugins[0], id: "../escape" }] }),
+    ).toThrow("Invalid plugin id");
+    expect(() =>
+      plan(fixture.config, {
+        ...manifest,
+        plugins: [{ ...manifest.plugins[0], backendId: "../escape" }],
+      }),
+    ).toThrow("Invalid plugin id");
+  });
+
   it("leaves existing outputs intact for missing README and invalid inputs", async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "package-test-"));
     try {
@@ -53,7 +119,20 @@ describe("package_plugin", () => {
         "README.md is required",
       );
       expect(await fs.readFile(sentinel, "utf8")).toBe("keep");
+      await fs.writeFile(path.join(cwd, "README.md"), "![missing](missing.png)");
+      await expect(bundlePackage({ cwd, config, buildOutputs: [] })).rejects.toThrow();
+      expect(await fs.readFile(sentinel, "utf8")).toBe("keep");
       await fs.writeFile(path.join(cwd, "README.md"), "# Package");
+      await expect(
+        bundlePackage({
+          cwd,
+          config,
+          buildOutputs: [
+            { kind: "backend", id: "backend", name: "Backend", fileName: "missing.js", assets: [] },
+          ],
+        }),
+      ).rejects.toThrow();
+      expect(await fs.readFile(sentinel, "utf8")).toBe("keep");
       await expect(
         bundlePackage({
           cwd,
@@ -133,11 +212,68 @@ describe("package_plugin", () => {
     ["nested\\file.txt"],
     ["nested/CON"],
   ])("rejects unsafe or colliding asset destinations: %j", async (...relative) => {
-    await expect(assemble(relative)).rejects.toBeTruthy();
+    expect(() => assemble(relative)).toThrow();
+  });
+
+  it.each([
+    null,
+    {},
+    "assets",
+    [{ source: "file.txt" }],
+    [{ relative: "file.txt" }],
+    [{ relative: 1, source: "file.txt" }],
+    [{ relative: "file.txt", source: null }],
+  ])("rejects malformed asset expansion: %j", async (expanded) => {
+    const inputs = preloaded([]);
+    expect(() =>
+      wasm.package_plugin(input, {
+        ...inputs,
+        // @ts-expect-error Exercise malformed preloaded asset records.
+        assets: [{ pattern: "assets", files: expanded }],
+      }),
+    ).toThrow(/^Invalid preloaded package inputs/);
+  });
+
+  it("packages shared sources and patterns for separate plugin destinations", async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "package-shared-"));
+    try {
+      await fs.mkdir(path.join(cwd, "assets"));
+      await fs.writeFile(path.join(cwd, "assets", "shared.txt"), "shared asset");
+      await fs.writeFile(path.join(cwd, "README.md"), "# Shared");
+      await fs.writeFile(path.join(cwd, "index.js"), "export {};");
+      await bundlePackage({
+        cwd,
+        config: caidoConfigSchema.parse(JSON.parse(input).config),
+        buildOutputs: ["first", "second"].map((id) => ({
+          kind: "backend",
+          id,
+          name: id,
+          fileName: "index.js",
+          assets: ["assets"],
+        })),
+      });
+      const zip = await JSZip.loadAsync(
+        await fs.readFile(path.join(cwd, "dist", "plugin_package.zip")),
+      );
+      for (const id of ["first", "second"]) {
+        expect(await zip.file(`${id}/index.js`)?.async("string")).toBe("export {};");
+        expect(await zip.file(`${id}/assets/shared.txt`)?.async("string")).toBe("shared asset");
+      }
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("returns actual byte arrays matching the archive", async () => {
-    const result = await assemble(["nested/file.txt"]);
+    const inputs = preloaded([]);
+    expect(() =>
+      wasm.package_plugin(input, {
+        ...inputs,
+        // @ts-expect-error Source bytes must be Uint8Array, not JSON number arrays.
+        files: [{ source: "index.js", bytes: [1, 2, 3] }],
+      }),
+    ).toThrow("Expected file bytes as Uint8Array");
+    const result = assemble(["nested/file.txt"]);
     expect(result.zip).toBeInstanceOf(Uint8Array);
     const zip = await JSZip.loadAsync(result.zip);
     for (const file of result.files) {

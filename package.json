@@ -22,7 +22,6 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
-    "@caido/plugin-manifest": "0.3.0",
     "@jsquash/webp": "1.5.0",
     "chokidar": "4.0.3",
     "express": "5.0.0",

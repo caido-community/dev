@@ -50,7 +50,7 @@ Run from the repository root:
 - `mise run build:dev` — build JavaScript and Rust/WASM into `dist/`.
 - `mise run typecheck:dev` — run TypeScript with `--noEmit`.
 - `mise run test` — build first, then run Vitest once (never watch).
-- `mise --env community run test-community` — Linux-only, opt-in Bash integration test: package every unique `caido-community` repository in the live store with this checkout's CLI, curl/jq/Git/pnpm, and ouch archive checks. Install extra tools with `mise --env community install --locked`; `.mise/config.community.toml` and `.mise/mise.community.lock` isolate jq/ouch and the pnpm 10.20.0 fallback from normal CI. Any failed primary install gets one pnpm 10.20.0 retry after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Logs are `install.log` and `install-pnpm10.log`; retries disable automatic package-manager switching and retain pnpm 10 on PATH for that clone's build only. Runs third-party install/build code under either version's policies; use a disposable environment. Use `-- --repository caido-community/name` for one listed repository; failures retain temporary clones and logs.
+- `mise --env community run test-community` — opt-in Bash integration test on Linux, macOS ARM64 (coreutils and Rosetta required), and Windows x64 (Git Bash required): package every unique `caido-community` repository in the live store with this checkout's CLI, curl/jq/Git/pnpm, and ouch archive checks. Install extra tools with `mise --env community install --locked`; `.mise/config.community.toml` and `.mise/mise.community.lock` isolate jq/ouch and the pnpm 10.20.0 fallback from normal CI. Any failed primary install gets one pnpm 10.20.0 retry after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Logs are `install.log` and `install-pnpm10.log`; retries disable automatic package-manager switching and retain pnpm 10 on PATH for that clone's build only. Runs third-party install/build code under either version's policies; use a disposable environment. Use `-- --repository caido-community/name` for one listed repository; failures retain temporary clones and logs.
 - `mise run format:dev` — format supported repository files with Oxfmt and format Rust.
 - `mise run format:prod` — check Oxfmt and Rust formatting without modifying files.
 - `mise run lint:dev` — apply safe Oxlint fixes, including Deslop rules.
@@ -117,7 +117,7 @@ The normal build flow is:
    - `frontend` via Vite.
    - `backend` via tsup.
    - `workflow` is represented in config but currently has no build implementation.
-4. Bundle build outputs and `README.md` into `dist/plugin_package/`:
+4. Preload build outputs and expanded assets after host filesystem containment/symlink checks. Prepare `README.md` separately with the Rust README transform, then pass its content/messages plus source-keyed `Uint8Array` bytes and per-pattern asset matches into synchronous `package_plugin`. Do not duplicate Rust destination/layout planning in TypeScript or add package assembly callbacks. Deduplicate input reads, not destination collision checks. Keep output safety checks before preloading and immediately before replacing `dist/`. Bundle into `dist/plugin_package/`:
    - `README.md` is always included from the project root (path is not configurable).
    - Comrak parses `README.md` in Rust/WASM. Image and link URLs are transformed in its syntax tree; reference-style uses are resolved into ordinary image/link nodes. Raw HTML URL attributes are transformed using html5ever tokenization and serialization.
    - Comrak serializes the transformed tree as Markdown. Formatting is normalized, reference-style uses may become inline links/images, and unused definitions disappear.
@@ -128,7 +128,7 @@ The normal build flow is:
    - Local non-image links are left unchanged.
    - Inlined images must fit within the documented per-image compression limit (100 KiB before base64 encoding), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
    - Existing build output bundling logic for frontend/backend plugins remains unchanged.
-5. Create and validate `manifest.json` for the bundled frontend/backend outputs; README image inlining does not add manifest entries.
+5. Rust assembles `manifest.json` for the bundled frontend/backend outputs; README image inlining does not add manifest entries. TypeScript trusts Rust-produced manifests and package results without post-assembly schema validation. Upfront user config validation remains required.
 6. Zip the package as `dist/plugin_package.zip`.
 
 If you change any part of this flow, update tests and documentation accordingly.

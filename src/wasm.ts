@@ -11,18 +11,7 @@ const modulePath = import.meta.url.endsWith("/src/wasm.ts")
 export const wasm = require(modulePath) as {
   parse_cli: (args: string) => string;
   plan_package: (input: string) => string;
-  package_plugin: (
-    input: string,
-    readFile: (source: string) => Promise<Uint8Array>,
-    expandAssets: (pattern: string) => Promise<{ source: string; relative: string }[]>,
-    readAsset: (pathname: string, url: string) => Promise<Uint8Array>,
-    encode: ReadmeEncoder,
-    validateManifest: (manifest: string) => boolean,
-  ) => Promise<{
-    files: { path: string; bytes: Uint8Array }[];
-    zip: Uint8Array;
-    messages: string[];
-  }>;
+  package_plugin: (input: string, preloaded: PreloadedPackageInputs) => WasmPackageResult;
   create_zip: (entries: string, contents: Uint8Array) => Uint8Array;
   readme_local_path: (url: string) => string;
   convert_readme_image: (
@@ -37,6 +26,24 @@ export const wasm = require(modulePath) as {
   ) => Promise<string>;
   readme_assets: (content: string) => string;
   transform_readme: (content: string, replacements: string) => string;
+};
+
+export type ReadmeResult = {
+  content: string;
+  warnings: string[];
+  messages: string[];
+};
+
+export type PreloadedPackageInputs = {
+  files: { source: string; bytes: Uint8Array }[];
+  assets: { pattern: string; files: { source: string; relative: string }[] }[];
+  readme: ReadmeResult;
+};
+
+export type WasmPackageResult = {
+  files: { path: string; bytes: Uint8Array }[];
+  zip: Uint8Array;
+  messages: string[];
 };
 
 export type ReadmeEncoder = (

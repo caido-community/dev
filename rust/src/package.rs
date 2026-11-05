@@ -9,8 +9,7 @@ use typed_path::{Utf8UnixComponent, Utf8UnixPath, Utf8WindowsPath};
 
 #[derive(Serialize)]
 struct PackagePlan {
-    // Supplied manifests retain unknown fields and insertion order. The host's
-    // manifest schema remains authoritative for their validation.
+    // Legacy supplied manifests retain unknown fields and insertion order.
     manifest: Value,
     copies: Vec<Copy>,
     assets: Vec<Asset>,
@@ -28,6 +27,7 @@ struct Asset {
     destination: String,
 }
 
+#[derive(Clone, Deserialize)]
 struct ExpandedAsset {
     relative: String,
     source: String,
@@ -199,59 +199,27 @@ fn validate_ids(plugins: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "lowercase")]
-enum BuildKind {
-    Frontend,
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum BuildKind<'a> {
+    Frontend {
+        #[serde(rename = "cssFileName", borrow)]
+        css: Option<&'a str>,
+        #[serde(rename = "backendId", borrow)]
+        backend: Option<&'a str>,
+    },
     Backend,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct BuildOutput<'a> {
-    kind: BuildKind,
+    #[serde(flatten, borrow)]
+    kind: BuildKind<'a>,
     id: &'a str,
-    name: &'a str,
+    name: Option<&'a str>,
     file_name: &'a str,
-    css: Option<&'a str>,
-    backend: Option<&'a str>,
     assets: Vec<&'a str>,
-}
-
-impl<'a> BuildOutput<'a> {
-    fn parse(value: &'a Value) -> Result<Self, String> {
-        let kind = match string(value, "kind")? {
-            "frontend" => BuildKind::Frontend,
-            "backend" => BuildKind::Backend,
-            kind => return Err(format!("Unsupported build output kind '{kind}'")),
-        };
-        let id = string(value, "id")?;
-        let frontend = matches!(kind, BuildKind::Frontend);
-        Ok(Self {
-            kind,
-            id,
-            name: optional_string(value, "name")?.unwrap_or(id),
-            file_name: string(value, "fileName")?,
-            css: if frontend {
-                optional_string(value, "cssFileName")?.filter(|s| !s.is_empty())
-            } else {
-                None
-            },
-            backend: if frontend {
-                optional_string(value, "backendId")?.filter(|s| !s.is_empty())
-            } else {
-                None
-            },
-            assets: value
-                .get("assets")
-                .and_then(Value::as_array)
-                .ok_or("Expected build output assets array")?
-                .iter()
-                .map(|v| {
-                    v.as_str()
-                        .ok_or_else(|| "Expected asset pattern string".into())
-                })
-                .collect::<Result<_, String>>()?,
-        })
-    }
 }
 
 #[derive(Serialize)]
@@ -263,7 +231,7 @@ struct BackendReference<'a> {
 #[derive(Serialize)]
 struct ManifestPlugin<'a> {
     id: &'a str,
-    kind: BuildKind,
+    kind: &'static str,
     name: &'a str,
     entrypoint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,9 +273,13 @@ fn plan_output(
     destinations: &mut HashSet<String>,
 ) -> Result<Value, String> {
     let entrypoint = copy(output.file_name, output.id, copies, destinations)?;
-    let frontend = matches!(output.kind, BuildKind::Frontend);
-    let style = output
-        .css
+    let (kind, css, backend) = match output.kind {
+        BuildKind::Frontend { css, backend } => ("frontend", css, backend),
+        BuildKind::Backend => ("backend", None, None),
+    };
+    let frontend = kind == "frontend";
+    let style = css
+        .filter(|s| !s.is_empty())
         .map(|css| copy(css, output.id, copies, destinations))
         .transpose()?;
     let asset_directory = if output.assets.is_empty() {
@@ -329,11 +301,15 @@ fn plan_output(
     };
     serde_json::to_value(ManifestPlugin {
         id: output.id,
-        kind: output.kind,
-        name: output.name,
+        kind,
+        name: output.name.unwrap_or(output.id),
         entrypoint,
         style,
-        backend: frontend.then(|| output.backend.map(|id| BackendReference { id })),
+        backend: frontend.then(|| {
+            backend
+                .filter(|s| !s.is_empty())
+                .map(|id| BackendReference { id })
+        }),
         runtime: (!frontend).then_some("javascript"),
         assets: asset_directory,
     })
@@ -341,8 +317,7 @@ fn plan_output(
 }
 
 fn package_plan(input: &str) -> Result<PackagePlan, String> {
-    // Parse only the fields packaging owns; config and supplied manifests may
-    // contain additional fields interpreted by their existing host schemas.
+    // Parse only the fields packaging owns; user config is validated before builds.
     let input: Value =
         serde_json::from_str(input).map_err(|e| format!("Invalid package input: {e}"))?;
     let config = input
@@ -392,7 +367,7 @@ fn package_plan(input: &str) -> Result<PackagePlan, String> {
     let mut destinations = HashSet::new();
     for output in outputs {
         plugins.push(plan_output(
-            BuildOutput::parse(output)?,
+            BuildOutput::deserialize(output).map_err(|e| format!("Invalid build output: {e}"))?,
             &mut copies,
             &mut assets,
             &mut destinations,

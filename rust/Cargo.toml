@@ -17,9 +17,12 @@ sanitize-filename = "=0.6.0"
 typed-path = "=0.12.3"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.145", features = ["preserve_order"] }
+serde-wasm-bindgen = "=0.6.5"
+serde_bytes = "=0.11.19"
 wasm-bindgen = "=0.2.104"
 js-sys = "=0.3.81"
 wasm-bindgen-futures = "=0.4.54"
 base64 = "=0.22.1"
 data-url = "=0.3.2"
+fluent-uri = "=0.3.2"
 zip = { version = "=9.0.5", default-features = false }

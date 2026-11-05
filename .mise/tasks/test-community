@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Package all community store repositories (Linux; use --env community)"
+#MISE description="Package all community store repositories (use --env community)"
 #MISE depends=["build:prod"]
 set -euo pipefail
 
@@ -12,14 +12,23 @@ case "${1:-}" in
   --help|-h) usage; exit 0 ;;
   --repository)
     [[ $# == 2 ]] || { usage >&2; exit 1; }
-    filter=${2,,}
+    filter=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
     ;;
   '') ;;
   *) usage >&2; exit 1 ;;
 esac
 [[ $# == 0 || -n $filter ]] || { usage >&2; exit 1; }
-[[ $(uname -s) == Linux ]] || { echo 'This integration task requires Linux.' >&2; exit 1; }
-for tool in curl jq git ouch pnpm node timeout mise find; do
+windows=false
+case "$(uname -s)" in
+  Linux) timeout_command=$(command -v timeout || true) ;;
+  Darwin) timeout_command=$(command -v gtimeout || true) ;;
+  MINGW*|MSYS*) windows=true; timeout_command=/usr/bin/timeout ;;
+  *) echo 'Use Linux, macOS, or Git Bash on Windows.' >&2; exit 1 ;;
+esac
+[[ -n $timeout_command && -x $timeout_command ]] || {
+  echo 'GNU timeout is required: install coreutils on Linux, brew install coreutils on macOS, or use Git Bash on Windows.' >&2; exit 1;
+}
+for tool in curl jq git ouch pnpm node mise find; do
   command -v "$tool" >/dev/null || { echo "Missing $tool; run mise --env community install --locked (curl, git and GNU coreutils are OS prerequisites)." >&2; exit 1; }
 done
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -27,6 +36,8 @@ cli="$root/dist/cli.js"
 fallback_pnpm=$(cd "$root" && mise --env community which pnpm --tool pnpm@10.20.0) || {
   echo 'Missing pnpm 10.20.0; run mise --env community install --locked.' >&2; exit 1;
 }
+# Mise prints native Windows paths; Bash path operations require POSIX paths.
+if $windows; then fallback_pnpm=$(cygpath -u "$fallback_pnpm"); fi
 [[ -x $fallback_pnpm ]] || { echo "Missing executable: $fallback_pnpm" >&2; exit 1; }
 primary_path=$PATH
 [[ -s $cli ]] || { echo "Missing built CLI: $cli" >&2; exit 1; }
@@ -36,14 +47,18 @@ echo "Temporary clones and logs: $work"
 trap 'status=$?; if (( status != 0 )); then echo "Diagnostics retained at $work" >&2; fi' EXIT
 curl --fail --silent --show-error --location --max-time 30 \
   https://raw.githubusercontent.com/caido/store/main/plugin_packages.json > "$work/store.json"
-jq -er '
+jq -ber '
   if type != "array" then error("Store index must be an array") else . end
   | map(if (.repository | type) != "string" then error("Missing repository string") else .repository end)
   | map(select((split("/")[0] | ascii_downcase) == "caido-community"))
   | map(ascii_downcase)
   | if all(.[]; test("^caido-community/[a-z0-9][a-z0-9._-]*$")) then unique[] else error("Unsafe repository name") end
 ' "$work/store.json" > "$work/repositories.txt"
-mapfile -t repositories < "$work/repositories.txt"
+[[ -s $work/repositories.txt ]] || { echo 'No community repositories in store.' >&2; exit 1; }
+repositories=()
+while IFS= read -r repository; do
+  repositories+=("$repository")
+done < "$work/repositories.txt"
 (( ${#repositories[@]} > 0 )) || { echo 'No community repositories in store.' >&2; exit 1; }
 if [[ -n $filter ]]; then
   found=false
@@ -57,17 +72,28 @@ fi
 # No inherited tokens, user Git/npm config, SSH agent, or Node startup options.
 # This reduces accidental credential exposure; executing repository code is NOT sandboxed.
 clean_run() {
-  local -a package_env=()
+  local -a package_env=(CI=true)
   if [[ $manage_versions == false ]]; then
-    package_env=(npm_config_manage_package_manager_versions=false)
+    package_env+=(npm_config_manage_package_manager_versions=false)
   fi
-  env -i PATH="$package_path" HOME="$home" TMPDIR="$work" \
-    XDG_CONFIG_HOME="$home" XDG_CACHE_HOME="$home/cache" \
-    NPM_CONFIG_USERCONFIG="$home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$home/global.npmrc" \
-    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$home/.gitconfig" GIT_TERMINAL_PROMPT=0 \
-    COREPACK_ENABLE_PROJECT_SPEC=0 CI=true \
+  local clean_home=$home clean_work=$work
+  if $windows; then
+    clean_home=$(cygpath -m "$home")
+    clean_work=$(cygpath -m "$work")
+    # Native Node/pnpm need Windows system variables, but never the user's profile.
+    package_env+=("SystemRoot=${SYSTEMROOT:-${SystemRoot:-C:\\Windows}}"
+      "WINDIR=${WINDIR:-C:\\Windows}" "COMSPEC=${COMSPEC:-C:\\Windows\\System32\\cmd.exe}"
+      "PATHEXT=${PATHEXT:-.COM;.EXE;.BAT;.CMD}" "USERPROFILE=$clean_home"
+      "APPDATA=$clean_home/AppData/Roaming" "LOCALAPPDATA=$clean_home/AppData/Local"
+      "TEMP=$clean_work" "TMP=$clean_work")
+  fi
+  env -i PATH="$package_path" HOME="$clean_home" TMPDIR="$clean_work" \
+    XDG_CONFIG_HOME="$clean_home" XDG_CACHE_HOME="$clean_home/cache" \
+    NPM_CONFIG_USERCONFIG="$clean_home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$clean_home/global.npmrc" \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$clean_home/.gitconfig" GIT_TERMINAL_PROMPT=0 \
+    COREPACK_ENABLE_PROJECT_SPEC=0 \
     "${package_env[@]}" \
-    timeout --kill-after=10s 10m "$@"
+    "$timeout_command" --kill-after=10s 10m "$@"
 }
 
 package_repository() {
@@ -100,7 +126,7 @@ package_repository() {
   [[ -s $archive ]] || { echo 'Missing or empty plugin_package.zip'; return 1; }
   clean_run ouch decompress "$archive" --dir "$extracted" > "$logs/archive.log" 2>&1 || return
   [[ -s $extracted/README.md && -s $extracted/manifest.json ]] || { echo 'Missing nonempty README.md or manifest.json'; return 1; }
-  jq -er '
+  jq -ber '
     if (.plugins | type) != "array" then error("Manifest plugins must be an array") else .plugins[] end
     | .entrypoint
     | if type == "string" and length > 0 then . else error("Invalid entrypoint") end

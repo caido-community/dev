@@ -91,23 +91,8 @@ pub fn parse_cli(args_json: &str) -> Result<String, JsValue> {
 
 /// Assemble a complete package before the host changes its output directory.
 #[wasm_bindgen]
-pub async fn package_plugin(
-    input: String,
-    read_file: js_sys::Function,
-    expand_assets: js_sys::Function,
-    read_asset: js_sys::Function,
-    encode: js_sys::Function,
-    validate_manifest: js_sys::Function,
-) -> Result<JsValue, JsValue> {
-    package::assemble(
-        &input,
-        read_file,
-        expand_assets,
-        read_asset,
-        encode,
-        validate_manifest,
-    )
-    .await
+pub fn package_plugin(input: String, preloaded: JsValue) -> Result<JsValue, JsValue> {
+    package::assemble(&input, preloaded)
 }
 
 /// Plan copies and manifest entries; filesystem and glob expansion stay in JS.

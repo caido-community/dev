@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use clap::{error::ErrorKind, Args, Parser, Subcommand};
+use serde::Serialize;
 use serde_json::{json, Value};
 
 fn version() -> &'static str {
@@ -28,7 +29,8 @@ struct Cli {
     command: Option<CliCommand>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Serialize)]
+#[serde(tag = "command", rename_all = "lowercase")]
 enum CliCommand {
     #[command(about = "Build the Caido plugin")]
     Build(PathOptions),
@@ -36,15 +38,17 @@ enum CliCommand {
     Watch(PathOptions),
 }
 
-#[derive(Args)]
+#[derive(Args, Serialize)]
 struct PathOptions {
     #[arg(value_name = "path")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
     #[command(flatten)]
+    #[serde(flatten)]
     config: ConfigOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Serialize)]
 struct ConfigOptions {
     #[arg(
         short = 'c',
@@ -52,6 +56,7 @@ struct ConfigOptions {
         value_name = "path",
         help = "Path to caido.config.ts file"
     )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     config: Option<String>,
 }
 
@@ -70,16 +75,6 @@ pub(crate) fn parse(input: &str) -> Result<String, String> {
             };
         }
     };
-    let (name, path, config) = match cli.command.ok_or("Expected a command")? {
-        CliCommand::Build(options) => ("build", options.path, options.config.config),
-        CliCommand::Watch(options) => ("watch", options.path, options.config.config),
-    };
-    let mut result = json!({"command":name});
-    if let Some(path) = path {
-        result["path"] = Value::from(path);
-    }
-    if let Some(config) = config {
-        result["config"] = Value::from(config);
-    }
-    Ok(result.to_string())
+    let command = cli.command.ok_or("Expected a command")?;
+    serde_json::to_string(&command).map_err(|error| error.to_string())
 }

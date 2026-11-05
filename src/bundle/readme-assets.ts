@@ -3,10 +3,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import encode, { init as initWebpEncoder } from "@jsquash/webp/encode.js";
-import { z } from "zod";
 
 import { logInfo } from "../utils";
-import { type ReadmeEncoder, wasm } from "../wasm";
+import { type ReadmeEncoder, type ReadmeResult, wasm } from "../wasm";
+
+import { checkedProjectPath } from "./filesystem";
 
 const require = createRequire(import.meta.url);
 let encoderReady: Promise<void> | undefined;
@@ -26,25 +27,15 @@ export const encodeImage: ReadmeEncoder = async (image, options) => {
   return encode(image, options);
 };
 
-function normalized(file: string): string {
-  return process.platform === "win32" ? file.toLowerCase() : file;
-}
-
 export async function readAsset(directory: string, pathname: string, url: string): Promise<Buffer> {
-  const file = path.resolve(directory, pathname);
-  const stats = await fs.lstat(file);
-  const [root, realFile] = await Promise.all([fs.realpath(directory), fs.realpath(file)]);
-  const relative = path.relative(normalized(root), normalized(realFile));
-  if (
-    stats.isSymbolicLink() ||
-    !relative ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  ) {
-    throw new Error(`README asset path escapes project root: ${url}`);
-  }
-  return fs.readFile(realFile);
+  const root = await fs.realpath(directory);
+  const file = await checkedProjectPath(
+    root,
+    path.resolve(directory, pathname),
+    `README asset path escapes project root: ${url}`,
+    false,
+  );
+  return fs.readFile(file);
 }
 
 export async function compressImageToWebpDataUri(directory: string, url: string): Promise<string> {
@@ -56,21 +47,14 @@ export async function compressImageToWebpDataUri(directory: string, url: string)
 
 export async function transformReadmeImages(readmePath: string): Promise<string> {
   const content = await fs.readFile(readmePath, "utf-8");
-  const result = z
-    .object({
-      content: z.string(),
-      warnings: z.array(z.string()),
-      messages: z.array(z.string()),
-    })
-    .parse(
-      JSON.parse(
-        await wasm.bundle_readme(
-          content,
-          (pathname, url) => readAsset(path.dirname(readmePath), pathname, url),
-          encodeImage,
-        ),
-      ),
-    );
+  // SAFETY: bundle_readme serializes Rust's ReadmeResult.
+  const result = JSON.parse(
+    await wasm.bundle_readme(
+      content,
+      (pathname, url) => readAsset(path.dirname(readmePath), pathname, url),
+      encodeImage,
+    ),
+  ) as ReadmeResult;
   for (const message of [...result.messages, ...result.warnings]) logInfo(message);
   return result.content;
 }
