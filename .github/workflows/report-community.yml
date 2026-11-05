@@ -32,7 +32,7 @@ jobs:
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
               owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
             });
-            const platforms = ['ubuntu-latest', 'windows-latest', 'macos-latest'];
+            const platforms = ['ubuntu-latest', 'windows-latest'];
             const rows = platforms.map(platform => {
               const job = jobs.find(job => job.name === `test-community (${platform})`);
               const failed = job?.steps?.find(step => step.conclusion === 'failure');
