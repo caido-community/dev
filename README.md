@@ -34,7 +34,7 @@ mise exec --env community -- pnpm install --frozen-lockfile
 mise --env community run test-community
 ```
 
-The shared `.mise/tasks/test-community` task selects a platform script under `scripts/test-community/platforms/`: `linux.sh`, `macos.sh`, or `windows.sh`. Those scripts own timeout prerequisites, executable path conversion, and platform-specific child-process environment variables. Repository discovery and clone/install/build/archive checks remain shared. Run the offline platform-interface checks with `bash scripts/test-community/platforms/test.sh` (Windows conversion is simulated outside Windows).
+The shared `.mise/tasks/test-community` task selects a platform script under `scripts/test-community/platforms/`: `linux.sh`, `macos.sh`, or `windows.sh`. Those scripts own timeout prerequisites, executable path conversion, and platform-specific child-process environment variables. Repository discovery and clone/install/build/archive checks remain shared.
 
 This opt-in network test builds this checkout with `build:prod`, fetches the live [plugin store index](https://raw.githubusercontent.com/caido/store/main/plugin_packages.json), and attempts to package every unique `caido-community` repository with this checkout's CLI. It checks the resulting ZIP, README, manifest, and plugin entrypoints. It is separate from pull-request validation.
 
