@@ -7,7 +7,10 @@ platform_check() {
     echo 'GNU timeout is required; use Git for Windows Git Bash.' >&2
     return 1
   }
-  command -v cygpath >/dev/null || { echo 'cygpath is required; use Git Bash.' >&2; return 1; }
+  command -v cygpath >/dev/null || {
+    echo 'cygpath is required; use Git Bash.' >&2
+    return 1
+  }
 }
 
 platform_shell_path() {
@@ -16,8 +19,8 @@ platform_shell_path() {
 }
 
 platform_environment() {
-  clean_home=$(cygpath -m "$home")
-  clean_work=$(cygpath -m "$work")
+  clean_home=$(cygpath -m "${home:?Shared task must provide an isolated home}")
+  clean_work=$(cygpath -m "${work:?Shared task must provide a temporary directory}")
   # Native Node/pnpm need system variables, but never the user's profile.
   package_env+=("SystemRoot=${SYSTEMROOT:-${SystemRoot:-C:\\Windows}}"
     "WINDIR=${WINDIR:-C:\\Windows}" "COMSPEC=${COMSPEC:-C:\\Windows\\System32\\cmd.exe}"
