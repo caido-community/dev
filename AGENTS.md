@@ -39,10 +39,11 @@ Native task changes are being implemented alongside this migration. Keep these i
 - `mise run typecheck:prod` — TypeScript checks; native Rust tests must also be included in validation.
 - `mise run test` — non-watch test task, dependent on `build:prod`; preserve playground coverage and add native CLI/package/watch coverage.
 - `mise run format:dev` / `format:prod` — write/check Oxfmt and Rust formatting.
-- `mise run lint:dev` / `lint:prod` — safe Oxlint fixes/checks, including full Deslop recommended type-aware rules. Keep Oxlint aligned with Deslop's exact `@oxlint/plugins` version; optional Deslop rules are not enabled.
+- `mise run lint:dev` / `lint:prod` — safe Oxlint fixes/checks using the repository's Oxlint configuration.
 - `mise --env dev run audit:prod` — cargo-deny checks of resolved dependencies.
 - `mise --env dev run zizmor` — check-only GitHub Actions audit; set `GH_TOKEN` for online checks.
-- `mise run knip:prod` — unused code/dependency checks.
+- `mise --env dev run deps` — check unused dependencies with Knip (JS/TS) and cargo-machete (Rust); check-only, also run in CI. Review findings before removal and document narrow false-positive exceptions.
+- `mise run knip:prod` — JS/TS-only unused code/dependency checks.
 - `mise --env dev run shellcheck` and `shfmt:prod` — Bash checks; `shfmt:dev` writes formatting.
 
 Mise supplies Node 24 for development; Oxc tools need Node 20.19+ or 22.12+. Do not raise published runtime engines accidentally. Do not start long-running watch/dev processes unless requested; use a timeout if testing them.
@@ -50,6 +51,12 @@ Mise supplies Node 24 for development; Oxc tools need Node 20.19+ or 22.12+. Do 
 ### Community test
 
 `mise --env community install --locked` and `mise --env community run test-community` run the opt-in live-store packaging sweep on Linux, macOS ARM64 (coreutils and Rosetta required), or Windows x64 (Git Bash required). Use `-- --repository caido-community/name` for one listed repository. The task builds this checkout and verifies extracted archives using curl/jq/Git/pnpm/ouch. It retries a failed install once with pnpm 10.20.0 after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Logs are `install.log` and `install-pnpm10.log`; failures retain clones/logs. Both versions may execute third-party lifecycle/build code. Run only in a disposable environment without credentials; environment isolation is not a sandbox. See README for details.
+
+## Code size, types, and tests
+
+- Keep authored code and test files at or below 250 lines, excluding generated artifacts and lockfiles. Split by responsibility, not arbitrary line ranges.
+- Validate external data at its boundary and pass strong types downstream. Do not repeat shape checks after typed deserialization; retain checks for changing filesystem state and distinct security invariants.
+- Do not add unit smoke tests for successful CLI launch, help, or platform selection already exercised by native CI packaging/build runs. Keep tests for failures, cancellation, collisions, recovery, and other behavior not proved by those successful builds.
 
 ## Build and filesystem invariants
 

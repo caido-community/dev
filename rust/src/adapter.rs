@@ -146,6 +146,7 @@ fn supervise(
     Ok(bytes)
 }
 
+use crate::package::{BuildOutput, PackageConfig};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -153,9 +154,9 @@ use serde_json::{json, Value};
 #[serde(deny_unknown_fields)]
 pub struct AdapterResponse {
     pub version: u32,
-    pub config: Value,
+    pub config: PackageConfig,
     #[serde(rename = "buildOutputs")]
-    pub build_outputs: Vec<Value>,
+    pub build_outputs: Vec<BuildOutput>,
     #[serde(rename = "assetMatches")]
     pub asset_matches: std::collections::HashMap<String, Vec<String>>,
 }
@@ -170,45 +171,14 @@ fn parse_response(stdout: &[u8]) -> Result<AdapterResponse, String> {
             response.version
         ));
     }
-    if !response.config.is_object() {
-        return Err("Invalid Node adapter response: config must be an object".into());
-    }
-    if response
-        .build_outputs
-        .iter()
-        .any(|output| !output.is_object())
-    {
-        return Err("Invalid Node adapter response: build outputs must be objects".into());
-    }
     Ok(response)
-}
-
-#[cfg(test)]
-pub fn invoke(cwd: &Path, config: Option<&str>, build: bool) -> Result<AdapterResponse, String> {
-    invoke_checked(cwd, config, build, None)
-}
-
-#[cfg(test)]
-pub(crate) fn invoke_checked(
-    cwd: &Path,
-    config: Option<&str>,
-    build: bool,
-    expected_config: Option<&Value>,
-) -> Result<AdapterResponse, String> {
-    invoke_cancellable(
-        cwd,
-        config,
-        build,
-        expected_config,
-        &Cancellation::default(),
-    )
 }
 
 pub(crate) fn invoke_cancellable(
     cwd: &Path,
     config: Option<&str>,
     build: bool,
-    expected_config: Option<&Value>,
+    expected_config: Option<&PackageConfig>,
     cancellation: &Cancellation,
 ) -> Result<AdapterResponse, String> {
     let adapter = std::env::var_os("CAIDO_DEV_ADAPTER")
@@ -227,7 +197,7 @@ pub(crate) fn invoke_cancellable(
         request["config"] = json!(config);
     }
     if let Some(expected) = expected_config {
-        request["expectedConfig"] = expected.clone();
+        request["expectedConfig"] = json!(expected);
     }
     // Inherit the caller's process cwd, preserving jiti and custom config lookup.
     // Inherit stderr so build diagnostics stream live without mixing with JSON.
@@ -238,94 +208,5 @@ pub(crate) fn invoke_cancellable(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancellation_terminates_and_reaps_owned_node_child() {
-        let path = std::env::temp_dir().join(format!(
-            "caido-dev-cancel-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&path).unwrap();
-        let exchange = Exchange(path);
-        let ready = exchange.0.join("ready");
-        let cancellation = Cancellation::default();
-        let worker_cancellation = cancellation.clone();
-        let request = serde_json::json!({"ready":ready, "padding":"x".repeat(512 * 1024)});
-        let worker = std::thread::spawn(move || {
-            let mut command =
-                Command::new(std::env::var_os("CAIDO_DEV_NODE").unwrap_or_else(|| "node".into()));
-            command.arg("-e").arg(
-                "let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{const fs=require('node:fs');const r=JSON.parse(input);fs.writeSync(1,Buffer.alloc(1024*1024));fs.writeFileSync(r.ready,String(process.pid));setTimeout(()=>{},30000);});"
-            );
-            supervise(&mut command, &request, &worker_cancellation)
-        });
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !ready.exists() && !worker.is_finished() && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let pid = std::fs::read_to_string(&ready);
-        cancellation.cancel();
-        let result = worker.join().unwrap();
-        let pid = pid.expect("Node child did not become ready");
-        assert!(result.unwrap_err().contains("cancelled"));
-        #[cfg(unix)]
-        assert!(
-            !Command::new("kill")
-                .args(["-0", pid.trim()])
-                .stderr(Stdio::null())
-                .status()
-                .unwrap()
-                .success(),
-            "child is still alive or unreaped"
-        );
-        #[cfg(not(unix))]
-        let _ = pid;
-    }
-
-    #[test]
-    fn cancellation_prevents_assembly_from_starting() {
-        let cancellation = Cancellation::default();
-        cancellation.cancel();
-        let mut committed = false;
-        assert!(cancellation
-            .assemble(|| {
-                committed = true;
-                Ok(())
-            })
-            .is_err());
-        assert!(!committed);
-    }
-
-    #[test]
-    fn accepts_versioned_metadata() {
-        let response = parse_response(
-            br#"{"version":1,"config":{"plugins":[]},"buildOutputs":[],"assetMatches":{}}"#,
-        )
-        .unwrap();
-        assert_eq!(response.version, 1);
-        assert!(response.build_outputs.is_empty());
-    }
-
-    #[test]
-    fn rejects_malformed_contaminated_and_incompatible_responses() {
-        for input in [
-            r#"{"version":2,"config":{},"buildOutputs":[]}"#,
-            r#"{"version":1,"config":null,"buildOutputs":[]}"#,
-            r#"{"version":1,"config":{},"buildOutputs":[null]}"#,
-            r#"{"version":1,"config":{}}"#,
-            "log\n{\"version\":1,\"config\":{},\"buildOutputs\":[]}",
-            "{}{}",
-        ] {
-            assert!(
-                parse_response(input.as_bytes()).is_err(),
-                "accepted {input}"
-            );
-        }
-    }
-}
+#[path = "adapter/tests.rs"]
+mod tests;

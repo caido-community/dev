@@ -89,6 +89,14 @@ The observed column records the baseline used to design the migration, not a cla
 - **Publishing:** coordinated versioning and failure recovery for optional packages; publish only when every accepted target is ready.
 - **Single cutover:** all major surfaces change together; acceptance gates and old/new fixture comparison are mandatory.
 
+## Release infrastructure scope
+
+The native npm cutover requires a runtime launcher, a portable native build helper, one release-staging entrypoint, and an internal third-party notice collector. Release staging creates the universal package and the matching platform package together; package metadata uses one source version. It does not need separate main/native command-line tools, a separate test runner, runtime downloads, or a release framework.
+
+Launcher, manifest, notice, and installed-package checks belong in the existing Vitest suite. Installed-package checks run against locally packed archives on each release target; source/playground tests alone cannot catch lost executable permissions or missing installed adapter dependencies. The release job publishes the exact tested archives. Cargo source fetching belongs in the shared test task, not duplicated matrix steps.
+
+Production implementation and test size must be reported separately. Extracting inline Rust tests improves review boundaries but does not reduce total code; simplification means removing redundant argument parsing, forwarding functions, and duplicate validation—not deleting coverage or weakening recovery/output guarantees.
+
 ## Remaining implementation specifications
 
 These do not change accepted architecture and should be finalized as concrete test values in implementation:

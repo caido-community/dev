@@ -57,35 +57,16 @@ jobs:
       - name: Build and test native encoder and CLI
         run: mise run test
 
-      - name: Test launcher selection and release staging
-        run: |
-          cargo fetch --locked --manifest-path rust/Cargo.toml
-          node --test scripts/native-launcher.test.mjs scripts/package-main.test.mjs scripts/native-notices.test.mjs
-
-      - name: Smoke test native executable
-        env:
-          NATIVE_BINARY: ${{ matrix.binary }}
-        run: |
-          "./dist/native/$NATIVE_BINARY" --help
-          "./dist/native/$NATIVE_BINARY" --version
-
-      - name: Package platform executable
-        env:
-          NATIVE_TARGET: ${{ matrix.target }}
-          NATIVE_BINARY: ${{ matrix.binary }}
-        run: |
-          cargo fetch --locked --manifest-path rust/Cargo.toml
-          node scripts/package-native.mjs --target "$NATIVE_TARGET" --binary "dist/native/$NATIVE_BINARY" --out "artifacts/dev-$NATIVE_TARGET"
-
       - name: Stage and pack release archives
         env:
           NATIVE_TARGET: ${{ matrix.target }}
+          NATIVE_BINARY: ${{ matrix.binary }}
         run: |
           set -euo pipefail
-          node scripts/package-main.mjs --out artifacts/main
+          node scripts/package-release.mjs --target "$NATIVE_TARGET" --binary "dist/native/$NATIVE_BINARY" --out artifacts/release
           mkdir -p artifacts/packed/main artifacts/packed/native
-          (cd artifacts/main && pnpm --config.ignore-scripts=true pack --pack-destination ../packed/main)
-          (cd "artifacts/dev-$NATIVE_TARGET" && pnpm --config.ignore-scripts=true pack --pack-destination ../packed/native)
+          (cd artifacts/release/main && pnpm --config.ignore-scripts=true pack --pack-destination ../../packed/main)
+          (cd artifacts/release/native && pnpm --config.ignore-scripts=true pack --pack-destination ../../packed/native)
           tar -xOf artifacts/packed/main/*.tgz package/package.json > artifacts/main-packed.json
           node --input-type=module -e '
             import assert from "node:assert/strict";
@@ -111,7 +92,7 @@ jobs:
           # Unpublished packages for other platforms are optional and may be skipped by npm.
           npm install --prefix .native-smoke --ignore-scripts --package-lock=false ./artifacts/packed/native/*.tgz ./artifacts/packed/main/*.tgz
           unset CAIDO_DEV_BINARY
-          node scripts/smoke-installed.mjs .native-smoke/node_modules/@caido-community/dev
+          CAIDO_DEV_INSTALLED_PACKAGE="$(node -p 'require("node:path").resolve(".native-smoke/node_modules/@caido-community/dev")')" pnpm exec vitest run tests/installed-package.spec.ts
 
       - name: Upload gated platform archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

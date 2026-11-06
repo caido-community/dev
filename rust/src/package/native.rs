@@ -1,9 +1,8 @@
 use super::{
-    package_files, package_plan, prepare, ExpandedAsset, PackageFile, PackageInput, PackageSources,
+    package_files, package_plan, prepare, BuildOutput, ExpandedAsset, PackageConfig, PackageFile,
     PreparedPackage,
 };
 use crate::filesystem::{absolute, check_output, checked_source};
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,35 +12,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// returned to the caller so CLI/watch logging remains outside package assembly.
 pub(crate) fn assemble(
     cwd: &Path,
-    config: Value,
-    build_outputs: Vec<Value>,
+    config: PackageConfig,
+    build_outputs: Vec<BuildOutput>,
     asset_matches: HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>, String> {
     let original_root = absolute(cwd)?;
     let root = fs::canonicalize(&original_root)
         .map_err(|e| format!("Cannot resolve project root: {e}"))?;
-    let plugin_roots = config
-        .get("plugins")
-        .and_then(Value::as_array)
-        .ok_or("Expected config.plugins array")?
+    let plugin_roots: Vec<_> = config
+        .plugins
         .iter()
-        .map(|plugin| {
-            plugin
-                .get("root")
-                .and_then(Value::as_str)
-                .map(PathBuf::from)
-                .ok_or_else(|| "Expected plugin.root string".to_owned())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|plugin| PathBuf::from(&plugin.root))
+        .collect();
     check_output(&root, &plugin_roots)?;
-    let plan = package_plan(PackageInput {
-        config,
-        build_outputs,
-        manifest: None,
-    })?;
+    let plan = package_plan(config, build_outputs)?;
     let readme = crate::readme::bundle(&root)?;
     let manifest = serde_json::to_string_pretty(&plan.manifest).map_err(|e| e.to_string())?;
-    let mut sources = PackageSources::new(plan.copies)?;
+    let mut sources = plan.sources;
     let mut expansions = HashMap::new();
     for asset in plan.assets {
         if !expansions.contains_key(&asset.pattern) {
@@ -228,282 +215,5 @@ fn write_package(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::filesystem::tests::TempDir;
-    use serde_json::json;
-
-    fn fixture() -> TempDir {
-        let root = TempDir::new();
-        fs::write(root.0.join("README.md"), "# Plugin\n").unwrap();
-        fs::create_dir(root.0.join("plugin")).unwrap();
-        fs::write(root.0.join("plugin/index.js"), "export default 1;").unwrap();
-        root
-    }
-    fn config() -> Value {
-        json!({"id":"package", "name":"Package", "version":"1.0.0", "plugins":[{"id":"plugin","root":"plugin"}]})
-    }
-    fn output(assets: Value) -> Value {
-        json!({"kind":"backend","id":"plugin","fileName":"plugin/index.js","assets":assets})
-    }
-
-    #[test]
-    fn manifest_defaults_and_referenced_ids_match_packaging_contract() {
-        let plan = |output: Value| {
-            super::super::package_plan(super::super::PackageInput {
-                config: config(),
-                build_outputs: vec![output],
-                manifest: None,
-            })
-        };
-        for kind in ["frontend", "backend"] {
-            for name in [None, Some(Value::Null), Some(json!(""))] {
-                let mut output =
-                    json!({"kind":kind,"id":"plugin","fileName":"plugin/index.js","assets":[]});
-                if let Some(name) = &name {
-                    output["name"] = name.clone();
-                }
-                let manifest = plan(output).unwrap().manifest;
-                assert_eq!(
-                    manifest["plugins"][0]["name"],
-                    if name == Some(json!("")) {
-                        ""
-                    } else {
-                        "plugin"
-                    }
-                );
-                assert!(manifest["plugins"][0].get("style").is_none());
-            }
-        }
-        let mut frontend = json!({"kind":"frontend","id":"plugin","fileName":"plugin/index.js","cssFileName":"","backendId":"","assets":[]});
-        let manifest = plan(frontend.clone()).unwrap().manifest;
-        assert!(manifest["plugins"][0].get("style").is_none());
-        assert!(manifest["plugins"][0]["backend"].is_null());
-        frontend["backendId"] = json!("../escape");
-        assert!(plan(frontend).is_err());
-        let backend = json!({"kind":"backend","id":"plugin","fileName":"plugin/index.js","backend":{"id":"../escape"},"assets":[]});
-        assert!(plan(backend).is_err());
-    }
-
-    #[test]
-    fn supplied_manifest_fields_order_and_referenced_id_validation_are_preserved() {
-        let supplied = json!({"extension":{"nested":true},"plugins":[{"extra":"retained","id":"supplied","backendId":""}],"id":"package","name":"Supplied"});
-        let plan = |config: Value, manifest: Value| {
-            super::super::package_plan(super::super::PackageInput {
-                config,
-                build_outputs: vec![],
-                manifest: Some(manifest),
-            })
-        };
-        assert_eq!(
-            serde_json::to_string(&plan(config(), supplied.clone()).unwrap().manifest).unwrap(),
-            serde_json::to_string(&supplied).unwrap()
-        );
-        let mut invalid_config = config();
-        invalid_config["plugins"][0]["backendId"] = json!("../escape");
-        assert!(plan(invalid_config, supplied.clone()).is_err());
-        for key in ["id", "backendId"] {
-            let mut invalid = supplied.clone();
-            invalid["plugins"][0][key] = json!("../escape");
-            assert!(plan(config(), invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn asset_destinations_reject_unsafe_case_and_file_directory_collisions() {
-        for paths in [
-            vec!["same.txt", "same.txt"],
-            vec!["same.txt", "SAME.txt"],
-            vec!["folder", "folder/file.txt"],
-            vec!["folder/file.txt", "folder"],
-            vec!["Folder", "folder/file.txt"],
-            vec!["Folder/file.txt", "folder"],
-            vec!["../escape.txt"],
-            vec!["/absolute.txt"],
-        ] {
-            let mut sources = super::super::PackageSources::new(vec![]).unwrap();
-            let mut rejected = false;
-            for path in paths {
-                if sources.reserve(path).is_err() {
-                    rejected = true;
-                    break;
-                }
-            }
-            assert!(rejected);
-        }
-    }
-
-    #[test]
-    fn assembles_layout_and_replaces_previous_output() {
-        let root = fixture();
-        fs::create_dir(root.0.join("dist")).unwrap();
-        fs::write(root.0.join("dist/sentinel"), b"old").unwrap();
-        assemble(&root.0, config(), vec![output(json!([]))], HashMap::new()).unwrap();
-        assert!(!root.0.join("dist/sentinel").exists());
-        assert_eq!(
-            fs::read(root.0.join("dist/plugin_package/plugin/index.js")).unwrap(),
-            b"export default 1;"
-        );
-        assert!(root.0.join("dist/plugin_package.zip").is_file());
-        let manifest: Value = serde_json::from_slice(
-            &fs::read(root.0.join("dist/plugin_package/manifest.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(manifest["plugins"][0]["entrypoint"], "plugin/index.js");
-        assert_eq!(fs::read_dir(&root.0).unwrap().count(), 3);
-    }
-
-    #[test]
-    fn preflight_failure_preserves_previous_output() {
-        let root = fixture();
-        fs::create_dir(root.0.join("dist")).unwrap();
-        fs::write(root.0.join("dist/sentinel"), b"old").unwrap();
-        let mut missing = output(json!([]));
-        missing["fileName"] = json!("plugin/missing.js");
-        assert!(assemble(&root.0, config(), vec![missing], HashMap::new()).is_err());
-        assert_eq!(fs::read(root.0.join("dist/sentinel")).unwrap(), b"old");
-        assert!(assemble(
-            &root.0,
-            config(),
-            vec![output(json!(["{a,b}.txt"]))],
-            HashMap::new(),
-        )
-        .unwrap_err()
-        .contains("Missing asset match metadata"));
-        assert_eq!(fs::read(root.0.join("dist/sentinel")).unwrap(), b"old");
-    }
-
-    #[test]
-    fn directory_glob_semantics_and_destination_collisions() {
-        let root = fixture();
-        fs::create_dir_all(root.0.join("assets/nested")).unwrap();
-        fs::write(root.0.join("assets/nested/a.txt"), b"asset").unwrap();
-        fs::write(root.0.join("assets/.hidden"), b"hidden").unwrap();
-        let assets = root.0.join("assets").to_str().unwrap().to_owned();
-        let files = expand_assets(&root.0, std::slice::from_ref(&assets)).unwrap();
-        assert_eq!(
-            files
-                .iter()
-                .map(|file| file.relative.as_str())
-                .collect::<Vec<_>>(),
-            [".hidden", "nested/a.txt"]
-        );
-        let files = expand_assets(
-            &root.0,
-            &[
-                root.0.join("assets/nested").to_str().unwrap().to_owned(),
-                root.0
-                    .join("assets/nested/a.txt")
-                    .to_str()
-                    .unwrap()
-                    .to_owned(),
-            ],
-        )
-        .unwrap();
-        assert_eq!(files.len(), 1); // Directory traversal and direct match target the same copy.
-        assert!(files.iter().any(|file| file.relative == "a.txt"));
-        assert!(assemble(
-            &root.0,
-            config(),
-            vec![output(json!(["assets", "assets"]))],
-            HashMap::from([("assets".to_owned(), vec![assets])]),
-        )
-        .unwrap_err()
-        .contains("Duplicate package destination"));
-    }
-
-    #[test]
-    fn replacement_rechecks_output() {
-        let root = fixture();
-        fs::write(root.0.join("dist"), b"sentinel").unwrap();
-        let package = PreparedPackage {
-            files: vec![],
-            zip: vec![],
-            messages: vec![],
-        };
-        assert!(write_package(&root.0, &[], &package).is_err());
-        assert_eq!(fs::read(root.0.join("dist")).unwrap(), b"sentinel");
-    }
-
-    #[test]
-    fn node_patterns_use_supplied_matches_and_allow_explicit_empty_results() {
-        let root = fixture();
-        fs::write(root.0.join("a.txt"), b"asset").unwrap();
-        let patterns = ["*.{txt,png}", "@(one|two)", "!(excluded)", "a\\*"];
-        for pattern in patterns {
-            assemble(
-                &root.0,
-                config(),
-                vec![output(json!([pattern]))],
-                HashMap::from([(
-                    pattern.to_owned(),
-                    vec![root.0.join("a.txt").to_str().unwrap().to_owned()],
-                )]),
-            )
-            .unwrap();
-            assert_eq!(
-                fs::read(root.0.join("dist/plugin_package/plugin/assets/a.txt")).unwrap(),
-                b"asset"
-            );
-        }
-        assemble(
-            &root.0,
-            config(),
-            vec![output(json!(["missing/*"]))],
-            HashMap::from([("missing/*".to_owned(), vec![])]),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn unsafe_asset_matches_preserve_previous_output() {
-        let root = fixture();
-        let outside = fixture();
-        fs::create_dir(root.0.join("dist")).unwrap();
-        fs::write(root.0.join("dist/sentinel"), b"old").unwrap();
-        let mut matches = vec![
-            "plugin/index.js".to_owned(),
-            outside
-                .0
-                .join("plugin/index.js")
-                .to_str()
-                .unwrap()
-                .to_owned(),
-            root.0.join("../outside.txt").to_str().unwrap().to_owned(),
-        ];
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::symlink;
-            symlink(root.0.join("plugin/index.js"), root.0.join("linked.js")).unwrap();
-            symlink(&outside.0, root.0.join("linked-parent")).unwrap();
-            matches.push(root.0.join("linked.js").to_str().unwrap().to_owned());
-            matches.push(
-                root.0
-                    .join("linked-parent/plugin/index.js")
-                    .to_str()
-                    .unwrap()
-                    .to_owned(),
-            );
-            fs::create_dir(root.0.join("assets")).unwrap();
-            symlink(
-                root.0.join("plugin/index.js"),
-                root.0.join("assets/linked.js"),
-            )
-            .unwrap();
-            matches.push(root.0.join("assets").to_str().unwrap().to_owned());
-        }
-        for source in matches {
-            assert!(
-                assemble(
-                    &root.0,
-                    config(),
-                    vec![output(json!(["assets/*"]))],
-                    HashMap::from([("assets/*".to_owned(), vec![source.clone()])]),
-                )
-                .is_err(),
-                "{source}"
-            );
-            assert_eq!(fs::read(root.0.join("dist/sentinel")).unwrap(), b"old");
-        }
-    }
-}
+#[path = "native/tests.rs"]
+mod tests;

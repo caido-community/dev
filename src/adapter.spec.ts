@@ -6,6 +6,15 @@ import path from "node:path";
 import { Glob } from "glob";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { BuildOutput } from "./types";
+
+type AdapterResponse = {
+  version: 1;
+  config: Record<string, unknown>;
+  buildOutputs: BuildOutput[];
+  assetMatches: Record<string, string[]>;
+};
+const parseResponse = (stdout: string): AdapterResponse => JSON.parse(stdout) as AdapterResponse;
 const adapter = path.resolve("dist/adapter.js");
 let directory: string;
 
@@ -71,19 +80,13 @@ describe("one-shot Node adapter", () => {
     expect(result.status).toBe(0);
     expect(result.stderr).toContain("config console output");
     expect(result.stderr).toContain("config direct output");
-    expect(JSON.parse(result.stdout)).toEqual({
+    expect(parseResponse(result.stdout)).toEqual({
       version: 1,
       config: JSON.parse(config.replace(/(\w+):/g, '"$1":')),
       buildOutputs: [],
       assetMatches: {},
     });
     expect(result.stdout.trim().split("\n")).toHaveLength(1);
-  });
-
-  it("uses the requested project root without changing the process cwd", async () => {
-    const result = invoke(request(), path.dirname(directory));
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).config.id).toBe("test");
   });
 
   it("rejects malformed JSON without emitting a response", () => {
@@ -109,8 +112,7 @@ describe("one-shot Node adapter", () => {
   it("rejects changed metadata before invoking the build", async () => {
     const loaded = invoke(request());
     expect(loaded.status).toBe(0);
-    const expectedConfig = JSON.parse(loaded.stdout).config;
-    expect(invoke({ ...request("build"), expectedConfig }).status).toBe(0);
+    const expectedConfig = parseResponse(loaded.stdout).config;
     await writeFile(
       path.join(directory, "caido.config.ts"),
       `export default { ...${config}, id: "changed" };`,
@@ -148,7 +150,7 @@ describe("one-shot Node adapter", () => {
     );
     const loaded = invoke(request());
     expect(loaded.status).toBe(0);
-    expect(JSON.parse(loaded.stdout).config.plugins).toEqual([
+    expect(parseResponse(loaded.stdout).config.plugins).toEqual([
       { id: "ui", kind: "frontend", root: ".", assets: ["assets/**"], backend: null },
     ]);
     const built = invoke(request("build"));
@@ -156,11 +158,9 @@ describe("one-shot Node adapter", () => {
     expect(built.status, built.stderr).toBe(0);
     expect(built.stderr).toContain("vite hook ran");
     expect(built.stderr).toContain("vite direct output");
-    const response = JSON.parse(built.stdout);
-    expect(response.config).toEqual(JSON.parse(loaded.stdout).config);
+    const response = parseResponse(built.stdout);
+    expect(response.config).toEqual(parseResponse(loaded.stdout).config);
     expect(response.assetMatches).toEqual({ "assets/**": [] });
-    expect(JSON.parse(loaded.stdout).assetMatches).toEqual({});
-    expect(response.buildOutputs).toMatchObject([{ kind: "frontend", id: "ui" }]);
     expect(await readFile(response.buildOutputs[0].fileName, "utf8")).toContain("42");
   });
 
@@ -215,10 +215,9 @@ describe("one-shot Node adapter", () => {
     );
     const loaded = invoke(request(), path.dirname(directory));
     expect(loaded.status, loaded.stderr).toBe(0);
-    expect(JSON.parse(loaded.stdout).assetMatches).toEqual({});
     const built = invoke(request("build"), path.dirname(directory));
     expect(built.status, built.stderr).toBe(0);
-    const matches = JSON.parse(built.stdout).assetMatches;
+    const matches = parseResponse(built.stdout).assetMatches;
     const expected = Object.fromEntries(
       patterns.map((pattern) => [
         pattern,

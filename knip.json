@@ -1,7 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/**/*.spec.ts", "playgrounds/**/*.spec.ts"],
-  "project": ["src/**/*.ts", "playgrounds/**/*.ts", "*.config.ts"],
+  "entry": [
+    "src/**/*.spec.ts",
+    "playgrounds/**/*.spec.ts",
+    "tests/**/*.spec.{ts,mjs}",
+    "scripts/build-native.mjs"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "playgrounds/**/*.ts",
+    "tests/**/*.{ts,mjs}",
+    "scripts/*.mjs",
+    "*.config.ts"
+  ],
   "ignore": ["playgrounds/**/caido.config.ts", "playgrounds/**/packages/**"],
   "ignoreDependencies": ["oxfmt"]
 }

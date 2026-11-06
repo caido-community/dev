@@ -98,37 +98,5 @@ pub(crate) fn parse(args: Vec<String>) -> Result<CliResponse, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{parse, CliResponse, DisplayResponse};
-
-    #[test]
-    fn displays_help_and_version() {
-        assert!(matches!(
-            parse(vec!["--help".into()]),
-            Ok(CliResponse::Display(DisplayResponse::Help { .. }))
-        ));
-        assert!(matches!(
-            parse(vec!["--version".into()]),
-            Ok(CliResponse::Display(DisplayResponse::Version))
-        ));
-    }
-
-    #[test]
-    fn parses_build_and_watch_options() {
-        assert!(matches!(
-            parse(vec!["build".into(), "-c".into(), "custom.ts".into()]),
-            Ok(CliResponse::Command(_))
-        ));
-        assert!(matches!(
-            parse(vec!["watch".into()]),
-            Ok(CliResponse::Command(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_unknown_subcommands() {
-        assert!(parse(vec!["unknown".into()]).is_err());
-        assert!(parse(vec![]).is_err());
-        assert!(parse(vec!["build".into(), "--config".into()]).is_err());
-    }
-}
+#[path = "cli/tests.rs"]
+mod tests;

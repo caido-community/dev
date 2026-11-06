@@ -31,7 +31,6 @@
   },
   "devDependencies": {
     "@types/node": "22.10.2",
-    "ai-deslop": "0.4.4",
     "jszip": "3.10.1",
     "knip": "6.7.0",
     "oxfmt": "0.71.0",

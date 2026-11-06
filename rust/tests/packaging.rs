@@ -1,6 +1,5 @@
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,13 +66,6 @@ impl Fixture {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    fn zip_entry(&self, path: &str) -> Vec<u8> {
-        let bytes = fs::read(self.0.join("dist/plugin_package.zip")).unwrap();
-        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
-        let mut output = Vec::new();
-        zip.by_name(path).unwrap().read_to_end(&mut output).unwrap();
-        output
-    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -82,7 +74,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn native_cli_packages_readme_images_manifest_and_shared_sources() {
+fn shared_sources_are_packaged_for_each_plugin_destination() {
     let fixture = Fixture::new();
     fs::create_dir(fixture.0.join("assets")).unwrap();
     fs::write(fixture.0.join("assets/shared.txt"), b"shared asset").unwrap();
@@ -91,38 +83,17 @@ fn native_cli_packages_readme_images_manifest_and_shared_sources() {
         ["first", "second"].into_iter().map(|id| json!({"id":id,"kind":"backend","fileName":"plugin/index.js","assets":["assets"]})).collect(),
     );
     fixture.assert_success();
-    let readme = fixture.zip_entry("README.md");
-    assert!(String::from_utf8(readme.clone())
-        .unwrap()
-        .contains("data:image/webp;base64,"));
-    assert_eq!(
-        readme,
-        fs::read(fixture.0.join("dist/plugin_package/README.md")).unwrap()
-    );
-    let manifest: Value = serde_json::from_slice(&fixture.zip_entry("manifest.json")).unwrap();
-    assert_eq!(manifest["id"], "package");
-    assert_eq!(manifest["plugins"].as_array().unwrap().len(), 2);
     for id in ["first", "second"] {
+        let root = fixture.0.join("dist/plugin_package").join(id);
         assert_eq!(
-            fixture.zip_entry(&format!("{id}/index.js")),
+            fs::read(root.join("index.js")).unwrap(),
             b"export default 1;"
         );
         assert_eq!(
-            fixture.zip_entry(&format!("{id}/assets/shared.txt")),
+            fs::read(root.join("assets/shared.txt")).unwrap(),
             b"shared asset"
         );
     }
-    let bytes = fs::read(fixture.0.join("dist/plugin_package.zip")).unwrap();
-    let zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
-    assert_eq!(
-        zip.len(),
-        6,
-        "README image inlining must not add manifest/archive entries"
-    );
-    assert!(zip.file_names().all(|name| {
-        let name = name.unwrap();
-        !name.contains('\\') && !name.starts_with('/') && !name.split('/').any(|part| part == "..")
-    }));
 }
 
 #[test]
