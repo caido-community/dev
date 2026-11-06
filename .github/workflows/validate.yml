@@ -41,8 +41,8 @@ jobs:
       - name: Typecheck
         run: mise run typecheck:prod
 
-      - name: Knip
-        run: mise run knip:prod
+      - name: Check unused Rust and JavaScript/TypeScript dependencies
+        run: mise run deps
 
       - name: Audit GitHub Actions workflows
         run: mise run zizmor

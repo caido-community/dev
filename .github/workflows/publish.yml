@@ -8,16 +8,33 @@ on:
       - "package.json"
 
 permissions:
-  id-token: write # Required for OIDC
   contents: read
 
 jobs:
-  publish-js:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  native-gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            binary: caido-dev
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            binary: caido-dev
+          - os: windows-latest
+            target: win32-x64
+            binary: caido-dev.exe
+          - os: macos-14
+            target: darwin-arm64
+            binary: caido-dev
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     env:
       MISE_ENV: dev
-
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout project
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -34,12 +51,109 @@ jobs:
       - name: Audit Rust dependencies
         run: mise run audit:prod
 
-      - name: Install
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: mise run build:prod
+      - name: Build and test native encoder and CLI
+        run: mise run test
 
-      - name: Publish
+      - name: Stage and pack release archives
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+          NATIVE_BINARY: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          node scripts/package-release.mjs --target "$NATIVE_TARGET" --binary "dist/native/$NATIVE_BINARY" --out artifacts/release
+          mkdir -p artifacts/packed/main artifacts/packed/native
+          (cd artifacts/release/main && pnpm --config.ignore-scripts=true pack --pack-destination ../../packed/main)
+          (cd artifacts/release/native && pnpm --config.ignore-scripts=true pack --pack-destination ../../packed/native)
+          tar -xOf artifacts/packed/main/*.tgz package/package.json > artifacts/main-packed.json
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const source = JSON.parse(readFileSync("package.json", "utf8"));
+            const packed = JSON.parse(readFileSync("artifacts/main-packed.json", "utf8"));
+            const expected = Object.fromEntries(["linux-x64", "linux-arm64", "win32-x64", "darwin-arm64"].map(target => [`@caido-community/dev-${target}`, source.version]));
+            assert.equal(packed.version, source.version);
+            assert.deepEqual(packed.optionalDependencies, expected);
+            assert.deepEqual(packed.bin, source.bin);
+            assert.deepEqual(packed.exports, source.exports);
+          '
+          if tar -tf artifacts/packed/main/*.tgz | grep -E '^package/dist/native(/|$)'; then
+            echo "Universal package must not bundle the local native executable" >&2
+            exit 1
+          fi
+
+      # Locally built release artifacts intentionally cannot have a checked-in install lock.
+      - name: Smoke test installed archives and backend build # zizmor: ignore[adhoc-packages]
+        run: |
+          set -euo pipefail
+          # Install our local platform archive explicitly, retaining build-tool optional dependencies.
+          # Unpublished packages for other platforms are optional and may be skipped by npm.
+          npm install --prefix .native-smoke --ignore-scripts --package-lock=false ./artifacts/packed/native/*.tgz ./artifacts/packed/main/*.tgz
+          unset CAIDO_DEV_BINARY
+          CAIDO_DEV_INSTALLED_PACKAGE="$(node -p 'require("node:path").resolve(".native-smoke/node_modules/@caido-community/dev")')" pnpm exec vitest run tests/installed-package.spec.ts
+
+      - name: Upload gated platform archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-${{ matrix.target }}
+          path: artifacts/packed/native/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload gated universal archive
+        if: matrix.target == 'linux-x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: main-package
+          path: artifacts/packed/main/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: native-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing; unavailable to platform gate jobs.
+    env:
+      MISE_ENV: dev
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          working_directory: .
+          version: ${{ vars.CI__MISE_VERSION }}
+          install_args: --locked
+
+      - name: Download gated platform archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: native-*
+          path: artifacts
+
+      - name: Download gated universal archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: main-package
+          path: artifacts/main-package
+
+      - name: Publish tested platform archives before universal archive
         shell: bash
-        run: pnpm --filter dev -r publish --access public
+        run: |
+          set -euo pipefail
+          for target in linux-x64 linux-arm64 win32-x64 darwin-arm64; do
+            packages=("artifacts/native-$target/"*.tgz)
+            test "${#packages[@]}" -eq 1 && test -f "${packages[0]}"
+            npm publish "${packages[0]}" --ignore-scripts --access public --provenance
+          done
+          packages=(artifacts/main-package/*.tgz)
+          test "${#packages[@]}" -eq 1 && test -f "${packages[0]}"
+          npm publish "${packages[0]}" --ignore-scripts --access public --provenance

@@ -9,6 +9,6 @@
     "outDir": "dist",
     "declaration": true
   },
-  "include": ["src/**/*", "playgrounds/**/*"],
+  "include": ["src/**/*", "playgrounds/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }

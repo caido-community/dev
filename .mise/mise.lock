@@ -2,11 +2,6 @@
 
 lockfile_version = 3
 
-[[tools."cargo:wasm-bindgen-cli"]]
-version = "0.2.104"
-backend = "cargo:wasm-bindgen-cli"
-specifiers = ["0.2.104"]
-
 [[tools.node]]
 version = "24.18.0"
 backend = "core:node"
@@ -51,10 +46,22 @@ url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-arm64.
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764733"
 provenance = "github-attestations"
 
+[tools.pnpm."platforms.linux-arm64-musl"]
+checksum = "sha256:ccfbcfb24d225bfa906b09d48b58b0c9f9f79d1d101c1374e60593b640a99abe"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-arm64-musl.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764742"
+provenance = "github-attestations"
+
 [tools.pnpm."platforms.linux-x64"]
 checksum = "sha256:f4e62794c56f7a1ad01097f94b90ca95680080aa2e83ebc3d0a751fb8aa8e4ad"
 url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-x64.tar.gz"
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764737"
+provenance = "github-attestations"
+
+[tools.pnpm."platforms.linux-x64-musl"]
+checksum = "sha256:3e138eb305247bc98b4e70bb759a9da09b32e8cdebc0e3c598e44dc0e98c89c5"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.18.0/pnpm-linux-x64-musl.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/493764739"
 provenance = "github-attestations"
 
 [tools.pnpm."platforms.macos-arm64"]
@@ -73,6 +80,3 @@ provenance = "github-attestations"
 version = "1.99.0"
 backend = "core:rust"
 specifiers = ["1.99.0"]
-
-[tools.rust.options]
-targets = "wasm32-unknown-unknown"

@@ -2,10 +2,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{
     imageops::FilterType, AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits,
 };
-use js_sys::{ArrayBuffer, Function, Object, Promise, Reflect, Uint8Array, Uint8ClampedArray};
 use std::io::Cursor;
-use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::JsFuture;
+use webp::{Encoder, WebPConfig};
 
 pub(crate) const MAX_IMAGE_BYTES: usize = 100 * 1024;
 const MAX_INPUT_PIXELS: u64 = 40_000_000;
@@ -126,22 +124,9 @@ fn prepare(input: &[u8], url: &str) -> Result<image::RgbaImage, String> {
     Ok(image)
 }
 
-fn set(object: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
-    Reflect::set(object, &JsValue::from_str(key), value).map(|_| ())
-}
-
 pub(crate) struct ConvertedImage {
     pub url: String,
     pub message: String,
-}
-
-impl ConvertedImage {
-    pub fn into_js(self) -> Result<JsValue, JsValue> {
-        let result = Object::new();
-        set(&result, "url", &JsValue::from_str(&self.url))?;
-        set(&result, "message", &JsValue::from_str(&self.message))?;
-        Ok(result.into())
-    }
 }
 
 fn result(bytes: &[u8], format: &str, url: &str) -> ConvertedImage {
@@ -155,57 +140,34 @@ fn result(bytes: &[u8], format: &str, url: &str) -> ConvertedImage {
     }
 }
 
-/// The host supplies only the encoder; image policy and metadata stay in Rust.
-pub(crate) async fn convert(
-    input: &[u8],
-    url: &str,
-    encode: &Function,
-) -> Result<ConvertedImage, JsValue> {
-    if preserve_gif(input).map_err(|error| JsValue::from_str(&error))? {
+#[cfg(test)]
+#[path = "readme_image/tests.rs"]
+mod tests;
+
+/// Decode, resize, encode, and enforce the packaging limits natively.
+pub(crate) fn convert(input: &[u8], url: &str) -> Result<ConvertedImage, String> {
+    if preserve_gif(input)? {
         return Ok(result(input, "gif", url));
     }
-    let prepared = prepare(input, url).map_err(|error| JsValue::from_str(&error))?;
-    let image = Object::new();
-    set(&image, "width", &JsValue::from(prepared.width()))?;
-    set(&image, "height", &JsValue::from(prepared.height()))?;
-    set(&image, "colorSpace", &JsValue::from_str("srgb"))?;
-    // Copy pixels into a JS-owned array so they remain valid across await points.
-    set(
-        &image,
-        "data",
-        &Uint8ClampedArray::from(prepared.as_raw().as_slice()).into(),
-    )?;
+    let prepared = prepare(input, url)?;
+    let encoder = Encoder::from_rgba(prepared.as_raw(), prepared.width(), prepared.height());
     let mut output_size = 0;
     for quality in (20..=80).rev().step_by(10) {
-        let options = Object::new();
-        set(&options, "quality", &JsValue::from(quality))?;
-        set(&options, "method", &JsValue::from(6))?;
-        set(&options, "lossless", &JsValue::from(0))?;
-        let output = async {
-            let value = encode.call2(&JsValue::UNDEFINED, &image, &options)?;
-            JsFuture::from(Promise::resolve(&value)).await
-        }
-        .await
-        .map_err(|error| {
-            let message = Reflect::get(&error, &JsValue::from_str("message"))
-                .ok()
-                .and_then(|message| message.as_string())
-                .or_else(|| error.as_string())
-                .unwrap_or_else(|| "Unknown encoder error".to_owned());
-            JsValue::from_str(&format!("Unable to encode README image {url}: {message}"))
-        })?;
-        if !output.is_instance_of::<ArrayBuffer>() {
-            return Err(JsValue::from_str(&format!(
-                "Invalid encoded README image: {url}"
-            )));
-        }
-        let bytes = Uint8Array::new(&output);
-        output_size = bytes.length() as usize;
+        let mut config = WebPConfig::new()
+            .map_err(|_| format!("Unable to initialize WebP encoder for README image {url}"))?;
+        config.quality = quality as f32;
+        config.method = 6;
+        config.lossless = 0;
+        let output = encoder
+            .encode_advanced(&config)
+            .map_err(|error| format!("Unable to encode README image {url}: {error:?}"))?;
+        let bytes: &[u8] = &output;
+        output_size = bytes.len();
         if output_size <= MAX_IMAGE_BYTES {
-            return Ok(result(&bytes.to_vec(), "webp", url));
+            return Ok(result(bytes, "webp", url));
         }
     }
-    Err(JsValue::from_str(&format!(
+    Err(format!(
         "README image {url} is {output_size} bytes after compression, which exceeds the {MAX_IMAGE_BYTES} byte limit"
-    )))
+    ))
 }

@@ -2,235 +2,100 @@
 
 Guidance for AI agents and contributors working in this repository.
 
-## Project overview
+## Project overview and migration status
 
-This repository contains `@caido-community/dev`, a TypeScript CLI toolkit for building, watching, bundling, and packaging Caido plugins.
+`@caido-community/dev` builds, watches, bundles, and packages Caido plugins. The approved migration moves CLI behavior into a native Rust executable in one coordinated cutover. Implementation, native Mise task updates, and release validation are in progress; do not interpret this guide as evidence that tests or publishing are complete. See `domain_models/migration-plan.md` and ADR 0001 for the accepted design.
 
-The published binary is `caido-dev`. The main commands are:
+The installed `caido-dev` command uses a small Node launcher selecting a platform-specific optional npm binary package. Node.js `>=20` is required for every invocation, including help/version; pnpm `>=9` remains supported. No runtime binary downloads. Initial targets are Linux x64, Linux ARM64, Windows x64, and macOS ARM64, not macOS x64 or Windows ARM64. Missing optional packages and unsupported targets need actionable diagnostics.
 
-- `caido-dev build [path]`
-- `caido-dev watch [path]`
+Commands remain `caido-dev build [path]` and `caido-dev watch [path]`, with `-c, --config <path>`. Rust owns argument parsing, help/version, diagnostics/status, build orchestration, filesystem operations, README/image processing, package/manifest/ZIP assembly, output replacement, and watch lifecycle. Exit statuses are 0 for success/help/version, 2 for usage errors (including no subcommand), and 1 for config/build/runtime errors.
 
-The package is ESM-only and targets Node.js.
+## Responsibility boundaries and repository layout
 
-## Repository layout
+- `rust/src/main.rs`, `cli.rs`, `build.rs`, and `adapter.rs` — native entrypoint, arguments, orchestration, and adapter supervision.
+- `rust/src/filesystem.rs`, `package.rs`, `package/native.rs`, and `archive.rs` — safe source traversal, package layout, manifest, output replacement, and ZIP.
+- `rust/src/readme.rs` and `readme_image.rs` — Comrak/html5ever URL transformations and native image policy/encoding.
+- `rust/src/watch.rs` — native watcher, HTTP download route, WebSocket notifications, and shutdown.
+- `src/adapter.ts` — constrained executable config/build adapter. `src/config.ts` loads executable TypeScript config/imports via jiti; `src/types.ts` contains existing strict Zod schemas and inferred types.
+- `src/build/` — unchanged Vite frontend and tsup backend behavior. Preserve arbitrary Vite options, functions, plugins, imports, cwd, and module resolution; do not translate them into Rust config.
+- `src/index.ts` — `defineConfig`, the only public JavaScript export. It is a typed identity helper; runtime validation happens when the CLI loads config.
+- `playgrounds/` — integration fixtures/tests; `.mise/tasks/` — task scripts; `.github/workflows/` — CI/publishing.
 
-- `src/cli.ts` — CLI entrypoint using `commander`.
-- `src/commands/` — top-level command implementations.
-- `src/build/` — frontend and backend plugin build logic.
-  - Frontend plugins are built with Vite.
-  - Backend plugins are built with tsup.
-- `src/bundle/` — package assembly logic for the final plugin zip.
-- `src/config.ts` — config loading via `jiti`.
-- `src/types.ts` — Zod schemas and inferred TypeScript types for config and messages.
-- `src/manifest.ts` — manifest creation helpers.
-- `src/utils/` — filesystem, path, logging, zip, and utility helpers.
-- `playgrounds/` — integration-style fixtures and tests for plugin builds.
-- `.github/workflows/` — CI validation and publishing workflows.
+The launcher only selects/invokes the native binary. The Node adapter evaluates/validates config, runs Vite/tsup, and performs asset glob pattern expansion only; it returns validated serializable config/build metadata and absolute matched source paths through one-shot versioned JSON over stdio. Preserve glob 11.0.1 `new Glob(pattern, { cwd })` defaults exactly, including directory matches. Expand distinct patterns from built frontend/backend output assets only after all builds finish. Every response includes `assetMatches: Record<string, string[]>`; load returns `{}`. Node does not validate asset filesystem paths, read asset contents, recursively collect matched directories, or copy/package assets; Rust owns those operations. Stdout is protocol-only and stderr carries diagnostics. Rust validates protocol/safety invariants. Do not return preloaded package bytes or add filesystem/README/image/package callbacks to Node. Legacy JS CLI, package host, and WASM files present during implementation are removal targets, not the final responsibility boundary.
 
-## Development environment
+Workflow plugins remain represented in config but have no build implementation; do not expand that scope.
 
-Use pnpm for all package operations.
+## Development environment and commands
 
-The package declares:
+Use pnpm for package operations and Mise for repository tasks. `.mise/config.toml` and `.mise/mise.lock` pin Node.js 24, pnpm 11.18.0, and Rust 1.99.0 for native builds. The final pipeline does not require a WASM target or wasm-bindgen CLI. `.mise/config.dev.toml` and its lock add audit tools; `community` separately adds jq, ouch, and pnpm 10.20.0 fallback tooling. Environments are opt-in: `mise --env dev` or `MISE_ENV=dev`; a task suffix such as `:dev` does not activate an environment.
 
-- Node.js `>=20`
-- pnpm `>=9`
+Native task changes are being implemented alongside this migration. Keep these interfaces aligned with their scripts rather than documenting old TypeScript/WASM execution:
 
-Use Mise for repository tasks. `.mise/config.toml` and `.mise/mise.lock` pin the shared tools used for both development and community plugin testing: Node.js `24`, pnpm `11.18.0`, Rust `1.99.0` with the `wasm32-unknown-unknown` target, and wasm-bindgen CLI `0.2.104`. `.mise/config.dev.toml` and `.mise/mise.dev.lock` add cargo-deny `0.19.1` and zizmor `1.30.1`; `.mise/config.community.toml` and `.mise/mise.community.lock` separately add jq, ouch, and Aqua pnpm 10.20.0 as an install fallback (pnpm 11.18.0 remains first in the community multi-version configuration). Environments are opt-in: use `mise --env dev` for the full development toolset, or set `MISE_ENV=dev`. A task suffix such as `:dev` does not activate that environment. Shared build/test tasks still work without an environment. Task definitions are executable scripts under `.mise/tasks/` (for example, `.mise/tasks/format/dev` defines `format:dev`).
-
-Validation CI uses `MISE_ENV=dev` on Ubuntu and Windows, and publishing uses it for the Rust audit. The published package still supports Node.js 20 and pnpm 9, so avoid introducing runtime behavior requiring newer versions without updating the package engines.
-
-## Common commands
-
-Run from the repository root:
-
-- `mise --env dev install --locked` — install shared tools, the WASM target, and dev audit tools from their lockfiles.
+- `mise --env dev install --locked` — install shared native tools and dev audit tools.
 - `mise exec -- pnpm install` — install dependencies.
-- `mise run build:dev` — build JavaScript and Rust/WASM into `dist/`.
-- `mise run typecheck:dev` — run TypeScript with `--noEmit`.
-- `mise run test` — build first, then run Vitest once (never watch).
-- `mise --env community run test-community` — opt-in Bash integration test on Linux, macOS ARM64 (coreutils and Rosetta required), and Windows x64 (Git Bash required): package every unique `caido-community` repository in the live store with this checkout's CLI, curl/jq/Git/pnpm, and ouch archive checks. Install extra tools with `mise --env community install --locked`; `.mise/config.community.toml` and `.mise/mise.community.lock` isolate jq/ouch and the pnpm 10.20.0 fallback from normal CI. Any failed primary install gets one pnpm 10.20.0 retry after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Logs are `install.log` and `install-pnpm10.log`; retries disable automatic package-manager switching and retain pnpm 10 on PATH for that clone's build only. Runs third-party install/build code under either version's policies; use a disposable environment. Use `-- --repository caido-community/name` for one listed repository; failures retain temporary clones and logs.
-- `mise run format:dev` — format supported repository files with Oxfmt and format Rust.
-- `mise run format:prod` — check Oxfmt and Rust formatting without modifying files.
-- `mise run lint:dev` — apply safe Oxlint fixes, including Deslop rules.
-- `mise run lint:prod` — check Oxlint and Deslop rules without modifying files.
-- `mise --env dev run audit:dev` — run cargo-deny checks (both audit variants require the dev environment).
-- `mise --env dev run zizmor` — audit GitHub Actions workflows (single check-only task; set `GH_TOKEN` for online audits).
-- `mise run knip:dev` — check unused code and dependencies. `knip.json` lists Oxfmt as a tooling dependency because it is invoked only by the Mise shell tasks.
-- `mise run cli:dev -- build [path]` — run the CLI directly from TypeScript.
-- `mise run cli:dev -- watch [path]` — run the watch command directly from TypeScript.
-- `mise run cli:prod -- build [path]` — build and run the packaged CLI.
+- `mise run build:dev` / `build:prod` — build JS launcher/helper/adapter and host-native Rust artifacts, not `dist/wasm/`.
+- `mise run cli:dev -- build [path]` / `watch [path]` — run native development CLI.
+- `mise run cli:prod -- build [path]` — build and run the packaged launcher.
+- `mise run typecheck:prod` — TypeScript checks; native Rust tests must also be included in validation.
+- `mise run test` — non-watch test task, dependent on `build:prod`; preserve playground coverage and add native CLI/package/watch coverage.
+- `mise run format:dev` / `format:prod` — write/check Oxfmt and Rust formatting.
+- `mise run lint:dev` / `lint:prod` — safe Oxlint fixes/checks using the repository's Oxlint configuration.
+- `mise --env dev run audit:prod` — cargo-deny checks of resolved dependencies.
+- `mise --env dev run zizmor` — check-only GitHub Actions audit; set `GH_TOKEN` for online checks.
+- `mise --env dev run deps` — check unused dependencies with Knip (JS/TS) and cargo-machete (Rust); check-only, also run in CI. Review findings before removal and document narrow false-positive exceptions.
+- `mise run knip:prod` — JS/TS-only unused code/dependency checks.
+- `mise --env dev run shellcheck` and `shfmt:prod` — Bash checks; `shfmt:dev` writes formatting.
 
-CI uses `:prod` variants; build, typecheck, audit, and knip perform the same work in both variants. Linting and formatting are separate checks. Oxlint enables the full Deslop recommended configuration, including type-aware rules through `oxlint-tsgolint`; optional Deslop rules are not enabled. Keep Oxlint aligned with Deslop's exact `@oxlint/plugins` version. Development requires Node.js 20.19+ or 22.12+ for the Oxc tools (Mise supplies Node.js 24); the published CLI still supports Node.js 20. `test` has no variants and depends on `build:prod`.
+Mise supplies Node 24 for development; Oxc tools need Node 20.19+ or 22.12+. Do not raise published runtime engines accidentally. Do not start long-running watch/dev processes unless requested; use a timeout if testing them.
 
-Do not start long-running watch/dev processes unless explicitly requested. If you do run one, use a timeout or clearly tell the user it will keep running.
+### Community test
 
-## Testing notes
+`mise --env community install --locked` and `mise --env community run test-community` run the opt-in live-store packaging sweep on Linux, macOS ARM64 (coreutils and Rosetta required), or Windows x64 (Git Bash required). Use `-- --repository caido-community/name` for one listed repository. The task builds this checkout and verifies extracted archives using curl/jq/Git/pnpm/ouch. It retries a failed install once with pnpm 10.20.0 after removing workspace `node_modules`, preserving frozen lockfiles and build-script approvals. Logs are `install.log` and `install-pnpm10.log`; failures retain clones/logs. Both versions may execute third-party lifecycle/build code. Run only in a disposable environment without credentials; environment isolation is not a sandbox. See README for details.
 
-Tests live under `playgrounds/**/*.spec.ts`.
+## Code size, types, and tests
 
-The Vitest setup in `playgrounds/setup.ts` installs dependencies in the relevant playground and runs the built CLI against that fixture. Because of this:
+- Keep authored code and test files at or below 250 lines, excluding generated artifacts and lockfiles. Split by responsibility, not arbitrary line ranges.
+- Validate external data at its boundary and pass strong types downstream. Do not repeat shape checks after typed deserialization; retain checks for changing filesystem state and distinct security invariants.
+- Do not add unit smoke tests for successful CLI launch, help, or platform selection already exercised by native CI packaging/build runs. Keep tests for failures, cancellation, collisions, recovery, and other behavior not proved by those successful builds.
 
-- `mise run test` can be slower than a typical unit test run.
-- `mise run test` requires a successful `build:prod` first; the task dependency handles this automatically.
-- Tests may generate `dist/`, `node_modules/`, and other build artifacts inside playground directories.
-- Do not commit generated playground artifacts unless intentionally changing fixtures.
+## Build and filesystem invariants
 
-When changing build, bundle, manifest, or config behavior, add or update playground coverage where practical.
+1. Rust invokes the adapter to evaluate/validate executable `caido.config.ts` and orchestrates unchanged Vite/tsup builds.
+2. Node expands asset patterns to matched paths only. Rust validates those paths, recursively collects matched directories, and reads assets/build outputs/README after containment and leaf/parent symlink checks. Preserve output checks before reads and immediately before replacing `dist/`. Deduplicate source reads, not destination collision checks.
+3. Rust alone plans package destinations, checks unsafe names, case-insensitive duplicates and file/directory collisions, and assembles `manifest.json`. README image inlining adds no manifest entries. Upfront Zod config validation remains required; do not duplicate post-assembly manifest validation in Node.
+4. Outputs remain `dist/plugin_package/` and `dist/plugin_package.zip`. Config/build/preflight failures must preserve existing outputs. Use temporary/atomic replacement where feasible and verify each OS; low-level write-failure rollback is platform-dependent. Containment checks are not race-proof.
 
-### README and asset bundling tests
+Use Rust filesystem/path APIs for native operations and Node path utilities only within the adapter/build ecosystem. Preserve cross-platform glob semantics, tool paths and forward-slash ZIP entry names; never hardcode host separators into logic. Test symlink rejection and sentinel preservation on supported platforms.
 
-- Playground fixtures include `README.md` with image references to validate automatic README image inlining.
-- Tests should verify `README.md` exists in the final zip and that referenced local README images are converted to WebP data URIs.
-- Playground `README.md` files should include external URL examples (http://, https://, data:) to test warning and URL removal behavior.
-- Ensure playground `README.md` files use relative local paths for test assets (e.g., `assets/test.png` for images and `assets/test.txt` for non-image local links).
+## README and image policy
 
-## Coding standards
+The root `README.md` is mandatory and not configurable. Preserve Comrak AST parsing/serialization and html5ever tokenization/serialization; do not replace them with regex or custom scanning. Formatting normalizes, reference uses can become inline forms, and unused definitions disappear. Preserve rendered Markdown and inline HTML boundaries.
 
-- Use TypeScript with strict types.
-- Keep the project ESM-compatible.
-- Prefer explicit types for public APIs and exported helpers.
-- Keep Zod schemas in `src/types.ts` aligned with inferred TypeScript types.
-- Validate external/user config with schemas rather than assuming shape.
-- Prefer small, focused modules that match the existing directory structure.
-- Preserve the current logging style through helpers in `src/utils/log.ts`.
+Follow the precise README Assets policy in `README.md`, not a blanket allowance for self-contained URLs:
 
-## Path and platform compatibility
+- Relative local non-image links and same-document fragments remain unchanged. Local PNG/JPEG/GIF/WebP image references are inlined; unsupported formats fail clearly.
+- Unsupported schemes/absolute URLs (including HTTP(S), protocol-relative, javascript, file, blob, mailto) are removed with warnings. Invalid URI references, malformed escapes and unescaped backslashes are removed; block percent-decoded absolute Unix/Windows paths.
+- Existing image data URIs survive **only in image and HTML resource contexts**, with valid base64 PNG/JPEG (including `image/jpg`)/GIF/WebP content matching declared MIME. Support MIME parameters and case-insensitive headers. Validate decoded images without resizing, every preserved animation frame, 100 KiB decoded content, the existing encoded URI size limit, and 40 MP. Invalid, oversized, unsupported, mismatched image data and all `data:` link URLs are removed with warnings. Do not broaden this to arbitrary data content.
+- Rust reads local image sources with same-handle stat and bounded chunk reads, closing the handle on success/failure. Source limit is 64 MiB (67,108,864 bytes), inclusive; allow at most one extra byte to detect growth.
+- Decode/resize within 1600×1600 without enlargement, enforce 40 million pixels, 100 KiB encoded image size before base64 and 2 MiB final README. Qualifying GIFs within dimensions/100 KiB stay unchanged to preserve animation; larger GIFs and animated WebP use first-frame WebP conversion.
+- Native lossy encoding uses quality 80, method 6, lossless disabled, retrying by 10 down to 20. Fail if still oversized. Encoded bytes need not match the former encoder.
 
-This package is validated on both Ubuntu and Windows in CI.
+`webp` 0.3.1 with resolved `libwebp-sys` 0.9.6 is selected conditionally. All four platform encoder build/smoke checks **and a license audit of the resolved graph gate publishing**. Only macOS ARM64 has been validated locally so far. Do not claim other targets or the license gate passed without evidence. Stop and reopen the dependency decision if a gate fails; no silent lossless fallback.
 
-When working with paths:
+Use checked-in image fixtures, not a PNG generator or test-only image-processing dependency. Test README presence in ZIP, conversions/size/resizing, valid versus invalid image data contexts, URL removal, paths and limits rather than codec internals.
 
-- Use Node's `path` utilities for filesystem paths.
-- Use the existing `slash` helper where a tool expects forward-slash paths.
-- Avoid hardcoded `/` or `\` separators in logic.
-- Be careful with glob patterns, Vite config paths, tsup entry paths, and zip entry names.
+## Watch contract
 
-## Build pipeline expectations
+Preserve HTTP GET `/plugin_package.zip`, default/configured port (default 3000), and JSON fields: `connected` (`packageId`, `downloadUrl`), `rebuild` (`downloadUrl`), `error` (`error`).
 
-The normal build flow is:
+Use a 200 ms trailing-edge debounce; serialize builds with one active and at most one trailing rebuild for events during it. Reload valid config/watch roots live; retain last valid setup on invalid reload and last good package on failure. Port changes require restart. Initial build failure keeps watcher/server available and serves 404 until first package. Invalid initial config watches the config path and root package metadata for recovery. Port bind failure reports port/OS reason, exits 1, cleans up, and never selects a fallback port. Remove disconnected clients safely and gracefully close watcher/WebSocket/HTTP/build resources on SIGINT/SIGTERM.
 
-1. Load `caido.config.ts` with `loadConfig`.
-2. Validate config with Zod.
-3. Build each configured plugin:
-   - `frontend` via Vite.
-   - `backend` via tsup.
-   - `workflow` is represented in config but currently has no build implementation.
-4. Preload build outputs and expanded assets after host filesystem containment/symlink checks. Prepare `README.md` separately with the Rust README transform, then pass its content/messages plus source-keyed `Uint8Array` bytes and per-pattern asset matches into synchronous `package_plugin`. Do not duplicate Rust destination/layout planning in TypeScript or add package assembly callbacks. Deduplicate input reads, not destination collision checks. Keep output safety checks before preloading and immediately before replacing `dist/`. Bundle into `dist/plugin_package/`:
-   - `README.md` is always included from the project root (path is not configurable).
-   - Comrak parses `README.md` in Rust/WASM. Image and link URLs are transformed in its syntax tree; reference-style uses are resolved into ordinary image/link nodes. Raw HTML URL attributes are transformed using html5ever tokenization and serialization.
-   - Comrak serializes the transformed tree as Markdown. Formatting is normalized, reference-style uses may become inline links/images, and unused definitions disappear.
-   - External URLs (`http://`, `https://`) trigger a warning and have their URLs removed (set to empty string) to prevent loading external resources.
-   - `data:` URIs are preserved as-is (self-contained content).
-   - Fragment-only links (`#anchor`) are preserved as same-document anchors.
-   - Local PNG, JPEG, GIF, and WebP image references are decoded and resized in Rust/WASM, then converted to lossy WebP `data:` URIs with the prebuilt `@jsquash/webp` WASM encoder. GIFs within 1600×1600 pixels and 100 KiB are inlined unchanged to preserve animation; larger GIFs and animated WebP use first-frame WebP conversion. SVG, AVIF, and TIFF are unsupported.
-   - Local non-image links are left unchanged.
-   - Inlined images must fit within the documented per-image compression limit (100 KiB before base64 encoding), and the final transformed `README.md` must fit within the documented overall README size limit (about 2 MiB).
-   - Existing build output bundling logic for frontend/backend plugins remains unchanged.
-5. Rust assembles `manifest.json` for the bundled frontend/backend outputs; README image inlining does not add manifest entries. TypeScript trusts Rust-produced manifests and package results without post-assembly schema validation. Upfront user config validation remains required.
-6. Zip the package as `dist/plugin_package.zip`.
+## Change and validation checklist
 
-If you change any part of this flow, update tests and documentation accordingly.
+Use strict TypeScript/ESM and explicit public types. Keep `src/types.ts` Zod schemas/types, adapter metadata and Rust protocol aligned; preserve clear validation errors. Update config fixtures, manifest assertions, playground/native tests and README for public changes. Keep modules focused and diagnostics consistent.
 
-### README and asset bundling notes
+Use exact direct Rust versions and committed `rust/Cargo.lock`; builds use `--locked`. Never hand-edit lockfiles. Run cargo-deny for advisories/licenses/duplicates/sources. Verify new Rust dependencies, including resolved transitive versions, are at least 14 days old until Renovate enforces the wait. Prefer parser/library APIs over custom parsing and avoid small unnecessary dependencies.
 
-- `README.md` is mandatory; the build will fail if it is missing from the project root.
-- Local image references in `README.md` are converted to compressed WebP `data:` URIs during packaging.
-- Transformation is applied to image URLs in Markdown image/link nodes, including resolved reference-style uses, and URL-bearing attributes inside raw HTML.
-- Local non-image links in markdown and raw HTML are left unchanged.
-- External URLs (`http://`, `https://`) trigger a warning message and have their URL removed (set to empty string for markdown nodes, emptied attribute value for HTML) to prevent loading external resources in the plugin package.
-- `data:` URIs are preserved as-is because they are self-contained.
-- Fragment-only links (e.g., `#purpose`) are preserved as same-document anchors and are not rewritten.
-- Rust/WASM decodes and resizes README images within 1600×1600 pixels without enlargement. Rust orchestrates conversion, supplies typed RGBA image metadata and encoder options to a TypeScript callback, and creates base64 data URIs. Rust selects lossy WebP quality starting at 80 with method 6 and retries in steps of 10 down to quality 20; the callback only initializes and invokes `@jsquash/webp`. Inputs are capped at 40 million pixels, encoded images at 100 KiB, and transformed README content at 2 MiB. Images that still exceed the byte limit fail packaging.
-- Comrak AST parsing/serialization and html5ever tokenization/serialization handle README transformations; do not replace these libraries with regex-based or custom source-scanning approaches. Preserve rendered Markdown structure and inline HTML boundaries; exact source formatting is not preserved.
-- Local README image sources are capped at 64 MiB (67,108,864 bytes), inclusive, before decoding. Preserve same-handle stat and bounded chunk reads (at most the limit plus one byte to detect growth), with the handle closed on success and failure. This byte bound does not make filesystem containment checks race-proof.
-- The TypeScript adapter performs filesystem containment checks, reads local assets, and loads the encoder WASM from the installed `@jsquash/webp` dependency using `createRequire.resolve` and filesystem reads (not file-URL fetch). Image decoding/resizing and URL transformation run in Rust/WASM. Tests use checked-in image fixtures, without a PNG generator or test-only image-processing dependency. Focus on README packaging, conversion to smaller WebP output for representative inputs, resizing, size limits, and path/URL handling rather than testing the image crate's codec implementations.
+Before finishing a non-trivial change, try `mise run build:prod`, `typecheck:prod`, `test`, `format:prod`, `lint:prod`, `knip:prod`, `mise --env dev run audit:prod`, and `mise --env dev run zizmor`. Report precisely what ran and why any check could not run. A local pass is not the four-target release gate. Cover CLI 0/2/1 statuses, adapter failure propagation, native package/README safety, watch failures/reload/shutdown, optional package installation, and each target's encoder before release.
 
-## Manifest and config changes
-
-When changing plugin config shape or manifest output:
-
-- Update the relevant Zod schema in `src/types.ts`.
-- Update inferred/exported types as needed.
-- Update manifest creation or bundling logic.
-- Update playground `caido.config.ts` fixtures.
-- Update expected manifest assertions in tests.
-- Update `README.md` if user-facing configuration or CLI behavior changes.
-
-## CLI behavior
-
-The CLI should fail clearly and exit non-zero on errors.
-
-When adding or modifying commands:
-
-- Wire the command in `src/cli.ts`.
-- Put command logic in `src/commands/`.
-- Export new command modules from `src/commands/index.ts`.
-- Keep user-facing option descriptions concise.
-- Update `README.md` for new or changed command behavior.
-- Add tests or playground coverage for meaningful behavior changes.
-
-## Dependency guidance
-
-- Use pnpm and keep `pnpm-lock.yaml` updated when dependencies change.
-- Do not hand-edit lockfile content.
-- Avoid adding dependencies for small utilities that are easy to implement locally.
-- Prefer dependencies that work in ESM and support the declared Node.js version.
-- Comrak and html5ever provide robust README parsing and serialization in Rust/WASM; prefer their APIs over custom parsing or source rewriting.
-- Do not hardcode secrets or tokens. The npm auth token belongs in environment configuration, not source files.
-
-## Generated files and artifacts
-
-Do not commit generated output unless explicitly intended.
-
-Common generated paths include:
-
-- `dist/`
-- playground `dist/` directories
-- playground `node_modules/`
-- coverage output
-- temporary zip/package output
-
-## Documentation expectations
-
-Update `README.md` when changing:
-
-- Installation instructions.
-- CLI commands or options.
-- Config file behavior.
-- Build/watch behavior.
-- Output package structure.
-- Requirements such as Node.js or pnpm versions.
-
-Keep documentation examples compatible with pnpm and the published `caido-dev` binary.
-
-## Pull request checklist for agents
-
-Before finishing a non-trivial change, try to run:
-
-1. `mise run build:prod`
-2. `mise run typecheck:prod`
-3. `mise run test`
-4. `mise run format:prod`
-5. `mise --env dev run audit:prod`
-6. `mise run knip:prod`
-7. `mise run lint:prod`
-
-If you cannot run a command, state why and describe the risk.
-
-Also check:
-
-- Public behavior is documented.
-- Config schema changes have tests.
-- Path handling remains cross-platform.
-- Generated artifacts were not accidentally included.
-- Lockfile changes are present only when dependencies changed.
-
-## Security and safety
-
-- Never commit API keys, npm tokens, credentials, or private registry tokens.
-- Treat `caido.config.ts` as user-controlled input.
-- Preserve validation and clear error reporting around user-provided config.
-- Be cautious when adding filesystem operations; avoid deleting outside the intended project/build directories.
-- Keep zip creation constrained to the expected plugin package directory.
+Never commit credentials, tokens, generated `dist/`, playground `node_modules/`, coverage or temporary packages unless explicitly intended. Treat config/imports/build hooks as executable user code. Avoid deletion outside intended output directories and constrain ZIP entries to the package layout. Document public behavior, cross-platform risks, pending checks, and dependency/lockfile changes honestly.

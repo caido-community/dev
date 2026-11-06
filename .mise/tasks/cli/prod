@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Build and run the packaged CLI; pass CLI arguments after --"
+#MISE description="Build and run the packaged native CLI; pass CLI arguments after --"
 #MISE depends=["build:prod"]
 set -euo pipefail
 
-node dist/cli.js "$@"
+export CAIDO_DEV_BINARY
+CAIDO_DEV_BINARY="$(node -p 'require("node:path").resolve("dist", "native", process.platform === "win32" ? "caido-dev.exe" : "caido-dev")')"
+node scripts/native-launcher.mjs "$@"
