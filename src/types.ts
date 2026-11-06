@@ -58,7 +58,7 @@ const linksConfigSchema = z.strictObject({
 });
 
 const watchConfigSchema = z.strictObject({
-  port: z.number().optional(),
+  port: z.number().int().min(0).max(65535).optional(),
 });
 
 export const caidoConfigSchema = z.strictObject({

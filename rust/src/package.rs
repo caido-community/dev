@@ -32,14 +32,6 @@ pub(crate) struct PackageFile {
     pub(crate) bytes: Vec<u8>,
 }
 
-struct PreparedPackage {
-    files: Vec<PackageFile>,
-    zip: Vec<u8>,
-    messages: Vec<String>,
-}
-
-use crate::readme::ReadmeResult;
-
 #[derive(Default)]
 struct PackageSources {
     copies: Vec<Copy>,
@@ -98,38 +90,6 @@ impl PackageSources {
         self.copies.push(copy);
         Ok(())
     }
-
-    fn expand(&mut self, asset: &Asset, expanded: ExpandedAsset) -> Result<(), String> {
-        self.add(Copy {
-            destination: format!("{}/{}", asset.destination, expanded.relative),
-            source: expanded.source,
-        })
-    }
-}
-
-fn package_files(manifest: String, readme: &ReadmeResult) -> Vec<PackageFile> {
-    vec![
-        PackageFile {
-            path: "README.md".into(),
-            bytes: readme.content.as_bytes().to_vec(),
-        },
-        PackageFile {
-            path: "manifest.json".into(),
-            bytes: manifest.into_bytes(),
-        },
-    ]
-}
-
-fn prepare(mut files: Vec<PackageFile>, readme: ReadmeResult) -> Result<PreparedPackage, String> {
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    let zip = crate::archive::create_files(&files)?;
-    let mut messages = readme.messages;
-    messages.extend(readme.warnings);
-    Ok(PreparedPackage {
-        files,
-        zip,
-        messages,
-    })
 }
 
 pub(crate) fn safe_package_path(path: &str) -> bool {

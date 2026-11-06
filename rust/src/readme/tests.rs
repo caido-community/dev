@@ -1,4 +1,4 @@
-use super::url_policy::data_image;
+use super::url_policy::{data_image, local_path};
 use super::*;
 
 #[test]
@@ -15,7 +15,7 @@ fn native_path_decoding_preserves_utf8_and_invalid_sequences() {
 fn blocks_encoded_absolute_paths_and_unsafe_schemes() {
     let result = transform_content(
         "[bad](javascript:alert) ![bad](%2Fetc%2Fimage.png)\n",
-        &HashMap::new(),
+        Path::new("."),
     )
     .unwrap();
     assert!(!result.content.contains("javascript:"));
@@ -49,7 +49,7 @@ fn data_images_are_validated_in_each_use_context() {
         ),
     ] {
         let source = format!("![Image]({uri})\n\n![Repeated]({uri})\n\n[Link]({uri})\n\n<img src=\"{uri}\">\n\n<a href=\"{uri}\">Link</a>");
-        let result = transform_content(&source, &HashMap::new()).unwrap();
+        let result = transform_content(&source, Path::new(".")).unwrap();
         let image = if preserved {
             format!("![Image]({uri})")
         } else {
@@ -77,7 +77,7 @@ fn data_images_are_validated_in_each_use_context() {
 #[test]
 fn reference_definitions_are_classified_per_use() {
     let uri = png_uri();
-    let result = transform_content(&format!("![Image][shared] and [Link][shared]\n\n[shared]: {uri}\n\n[unused]: https://example.com"), &HashMap::new()).unwrap();
+    let result = transform_content(&format!("![Image][shared] and [Link][shared]\n\n[shared]: {uri}\n\n[unused]: https://example.com"), Path::new(".")).unwrap();
     assert!(result.content.contains(&format!("![Image]({uri})")));
     assert!(result.content.contains("[Link]()"));
     assert!(!result.content.contains("[shared]:"));
@@ -101,7 +101,7 @@ fn blocks_all_unsupported_and_malformed_url_forms() {
     ] {
         let result = transform_content(
             &format!("<img src=\"{url}\">\n\n<a href=\"{url}\">link</a>"),
-            &HashMap::new(),
+            Path::new("."),
         )
         .unwrap();
         assert!(
@@ -120,11 +120,16 @@ fn blocks_all_unsupported_and_malformed_url_forms() {
 
 #[test]
 fn html_parser_preserves_inline_boundaries_and_clears_resource_attributes() {
-    let uri = png_uri();
-    let replacements = HashMap::from([("local.png".into(), uri.clone())]);
+    let root = crate::filesystem::tests::TempDir::new();
+    std::fs::write(
+        root.0.join("local.png"),
+        include_bytes!("../../../src/bundle/__fixtures__/images/red16x16.png"),
+    )
+    .unwrap();
     let source = "<IMG SRC=local.png ALT='Local image'>\n\n<a HREF=https://example.com>external</a>\n\nbefore <a href=\"#foo\">click</a> after\n\nbefore <a href=\"java&#x09;script:alert(1)\">unsafe</a> after\n\n<video poster=\"https://example.com\"></video><object data=\"https://example.com\"></object><form action=\"https://example.com\"></form><button formaction=\"https://example.com\">Send</button><table background=\"https://example.com\"></table><img srcset=\"local.png 1x\" src=\"local.png\"><a style=\"background:url(https://example.com)\" href=\"assets/test.txt\">Local</a>";
-    let result = transform_content(source, &replacements).unwrap();
-    assert!(result.content.contains(&format!("src=\"{uri}\"")));
+    let result = transform_content(source, &root.0).unwrap();
+    assert!(result.content.contains("src=\"data:image/webp;base64,"));
+    assert_eq!(result.messages.len(), 1); // Repeated local resources convert only once.
     assert!(result
         .content
         .contains("before <a href=\"#foo\">click</a> after"));
@@ -165,7 +170,7 @@ fn data_image_byte_limit_is_inclusive() {
         "data:image/png;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     );
-    let result = transform_content(&format!("![oversized]({oversized})"), &HashMap::new()).unwrap();
+    let result = transform_content(&format!("![oversized]({oversized})"), Path::new(".")).unwrap();
     assert!(result.content.contains("![oversized]()"));
     assert_eq!(result.warnings.len(), 1);
 }
@@ -229,5 +234,5 @@ fn rejects_leaf_and_parent_image_symlinks() {
 
 #[test]
 fn enforces_final_readme_limit() {
-    assert!(transform_content(&"a".repeat(MAX_README_BYTES + 1), &HashMap::new()).is_err());
+    assert!(transform_content(&"a".repeat(MAX_README_BYTES + 1), Path::new(".")).is_err());
 }

@@ -54,14 +54,10 @@ fn successful_replacement_removes_previous_output_and_staging_directory() {
 }
 
 #[test]
-fn preflight_failure_preserves_previous_output() {
+fn missing_asset_metadata_preserves_previous_output() {
     let root = fixture();
     fs::create_dir(root.0.join("dist")).unwrap();
     fs::write(root.0.join("dist/sentinel"), b"old").unwrap();
-    let mut missing = output(json!([]));
-    missing.file_name = "plugin/missing.js".into();
-    assert!(assemble(&root.0, config(), vec![missing], HashMap::new()).is_err());
-    assert_eq!(fs::read(root.0.join("dist/sentinel")).unwrap(), b"old");
     assert!(assemble(
         &root.0,
         config(),
@@ -116,12 +112,7 @@ fn directory_glob_semantics_and_destination_collisions() {
 fn replacement_rechecks_output() {
     let root = fixture();
     fs::write(root.0.join("dist"), b"sentinel").unwrap();
-    let package = PreparedPackage {
-        files: vec![],
-        zip: vec![],
-        messages: vec![],
-    };
-    assert!(write_package(&root.0, &[], &package).is_err());
+    assert!(write_package(&root.0, &[], &[], &[]).is_err());
     assert_eq!(fs::read(root.0.join("dist")).unwrap(), b"sentinel");
 }
 

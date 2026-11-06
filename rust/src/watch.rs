@@ -58,7 +58,7 @@ async fn run_with_shutdown(
     if !cwd.is_dir() {
         return Err(format!("{} is not a directory", cwd.display()));
     }
-    let config_path = Some(config_path(&cwd, options.config_path())?);
+    let config_path = Some(config_path(&cwd, options.config.as_deref())?);
     let files = watch_files(&cwd, config_path.as_deref());
     let (events_tx, mut events) = mpsc::channel(1);
     let mut watcher = make_watcher(&files, &[], events_tx.clone())?;

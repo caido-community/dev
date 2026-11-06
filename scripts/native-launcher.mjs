@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Install as dist/native-launcher.mjs alongside dist/adapter.js.
+// build-native.mjs copies this to dist/cli.js (the package bin), next to dist/adapter.js.
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";

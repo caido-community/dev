@@ -42,7 +42,7 @@ console.log(JSON.stringify({version:1,config,buildOutputs:[],assetMatches:{}}));
     std::fs::create_dir(project.0.join("b")).unwrap();
     std::fs::write(&config_file, metadata("a").to_string()).unwrap();
     let response = cli::parse(vec!["watch".into(), project.0.to_str().unwrap().into()]).unwrap();
-    let cli::CliResponse::Command(cli::CliCommand::Watch(options)) = response else {
+    let cli::CliCommand::Watch(options) = response else {
         panic!("watch options")
     };
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();

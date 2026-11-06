@@ -1,7 +1,4 @@
-use super::{
-    package_files, package_plan, prepare, BuildOutput, ExpandedAsset, PackageConfig, PackageFile,
-    PreparedPackage,
-};
+use super::{package_plan, BuildOutput, Copy, ExpandedAsset, PackageConfig, PackageFile};
 use crate::filesystem::{absolute, check_output, checked_source};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -44,11 +41,23 @@ pub(crate) fn assemble(
             );
         }
         for expanded in &expansions[&asset.pattern] {
-            sources.expand(&asset, expanded.clone())?;
+            sources.add(Copy {
+                destination: format!("{}/{}", asset.destination, expanded.relative),
+                source: expanded.source.clone(),
+            })?;
         }
     }
     let mut contents = HashMap::new();
-    let mut files = package_files(manifest, &readme);
+    let mut files = vec![
+        PackageFile {
+            path: "README.md".into(),
+            bytes: readme.content.into_bytes(),
+        },
+        PackageFile {
+            path: "manifest.json".into(),
+            bytes: manifest.into_bytes(),
+        },
+    ];
     for copy in sources.copies {
         // Recheck each source even when its bytes have already been preloaded.
         let source = checked_source(&original_root, Path::new(&copy.source), false)?;
@@ -65,9 +74,12 @@ pub(crate) fn assemble(
             bytes: contents[&source].clone(),
         });
     }
-    let package = prepare(files, readme)?;
-    write_package(&root, &plugin_roots, &package)?;
-    Ok(package.messages)
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let zip = crate::archive::create_files(&files)?;
+    write_package(&root, &plugin_roots, &files, &zip)?;
+    let mut messages = readme.messages;
+    messages.extend(readme.warnings);
+    Ok(messages)
 }
 
 fn expand_assets(root: &Path, matches: &[String]) -> Result<Vec<ExpandedAsset>, String> {
@@ -175,13 +187,14 @@ impl Drop for Stage {
 fn write_package(
     root: &Path,
     plugin_roots: &[PathBuf],
-    package: &PreparedPackage,
+    files: &[PackageFile],
+    zip: &[u8],
 ) -> Result<(), String> {
     let stage = Stage::new(root)?;
     let staged_dist = stage.0.join("next");
     let package_dir = staged_dist.join("plugin_package");
     fs::create_dir_all(&package_dir).map_err(|e| e.to_string())?;
-    for file in &package.files {
+    for file in files {
         if !super::safe_package_path(&file.path) {
             return Err(format!("Invalid package destination '{}'", file.path));
         }
@@ -190,7 +203,7 @@ fn write_package(
             .map_err(|e| e.to_string())?;
         fs::write(path, &file.bytes).map_err(|e| format!("Cannot stage package file: {e}"))?;
     }
-    fs::write(staged_dist.join("plugin_package.zip"), &package.zip)
+    fs::write(staged_dist.join("plugin_package.zip"), zip)
         .map_err(|e| format!("Cannot stage package ZIP: {e}"))?;
     check_output(root, plugin_roots)?;
     let dist = root.join("dist");

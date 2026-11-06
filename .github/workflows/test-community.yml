@@ -4,23 +4,18 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "src/bundle/**"
-      - "src/build/**"
-      - "src/manifest.ts"
-      - "src/config.ts"
-      - "src/types.ts"
-      - "src/utils/**"
-      - "src/wasm.ts"
+      - "src/**"
+      - "scripts/**"
+      - "tests/**"
+      - "playgrounds/**"
       - "rust/**"
-      - "scripts/build-wasm.mjs"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsup.config.ts"
       - "tsconfig.json"
       - ".mise/**"
-      - "mise.toml"
-      - "scripts/test-community/**"
+      - ".npmrc"
       - ".github/workflows/test-community.yml"
 
 permissions:
@@ -35,7 +30,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # The whole-store sweep contains multiple independently capped operations.
+    timeout-minutes: 360
     defaults:
       run:
         shell: bash
@@ -59,12 +55,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package community plugins
+        # Leave time for log upload before the job reaches its hard timeout.
+        timeout-minutes: 330
         run: |
           export TMPDIR="$(cd "$RUNNER_TEMP" && pwd)"
           mise run test-community
 
       - name: Upload packaging failure logs
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: community-packaging-logs-${{ matrix.os }}

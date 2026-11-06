@@ -1,7 +1,6 @@
 use std::sync::OnceLock;
 
-use clap::{error::ErrorKind, Args, Parser, Subcommand};
-use serde::Serialize;
+use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 
 pub fn version() -> &'static str {
@@ -26,11 +25,10 @@ pub fn version() -> &'static str {
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Option<CliCommand>,
+    command: CliCommand,
 }
 
-#[derive(Subcommand, Serialize)]
-#[serde(tag = "command", rename_all = "lowercase")]
+#[derive(Subcommand)]
 pub enum CliCommand {
     #[command(about = "Build the Caido plugin")]
     Build(PathOptions),
@@ -38,63 +36,21 @@ pub enum CliCommand {
     Watch(PathOptions),
 }
 
-#[derive(Args, Serialize, Clone)]
+#[derive(Args, Clone)]
 pub struct PathOptions {
     #[arg(value_name = "path")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    #[command(flatten)]
-    #[serde(flatten)]
-    config: ConfigOptions,
-}
-
-impl PathOptions {
-    pub(crate) fn config_path(&self) -> Option<&str> {
-        self.config.config.as_deref()
-    }
-}
-
-#[derive(Args, Serialize, Clone)]
-pub struct ConfigOptions {
     #[arg(
         short = 'c',
         long,
         value_name = "path",
         help = "Path to caido.config.ts file"
     )]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(untagged)]
-pub(crate) enum CliResponse {
-    Command(CliCommand),
-    Display(DisplayResponse),
-}
-
-#[derive(Serialize)]
-#[serde(tag = "command", rename_all = "lowercase")]
-pub(crate) enum DisplayResponse {
-    Help { help: String },
-    Version,
-}
-
-pub(crate) fn parse(args: Vec<String>) -> Result<CliResponse, String> {
-    let cli = match Cli::try_parse_from(std::iter::once("caido-dev".to_owned()).chain(args)) {
-        Ok(cli) => cli,
-        Err(error) => {
-            return match error.kind() {
-                ErrorKind::DisplayHelp => Ok(CliResponse::Display(DisplayResponse::Help {
-                    help: error.to_string(),
-                })),
-                ErrorKind::DisplayVersion => Ok(CliResponse::Display(DisplayResponse::Version)),
-                _ => Err(error.to_string()),
-            };
-        }
-    };
-    let command = cli.command.ok_or("Expected a command")?;
-    Ok(CliResponse::Command(command))
+pub(crate) fn parse(args: Vec<String>) -> Result<CliCommand, clap::Error> {
+    Cli::try_parse_from(std::iter::once("caido-dev".to_owned()).chain(args)).map(|cli| cli.command)
 }
 
 #[cfg(test)]

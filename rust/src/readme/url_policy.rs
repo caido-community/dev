@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::HashMap, path::Path};
 
 use fluent_uri::{component::Scheme, IriRef};
 use typed_path::{Utf8UnixPath, Utf8WindowsComponent, Utf8WindowsPath};
@@ -154,19 +154,19 @@ fn preserve(kind: Kind, context: Context) -> bool {
 }
 
 pub(super) struct Work<'a> {
-    replacements: Option<&'a HashMap<String, String>>,
-    pub(super) assets: Vec<String>,
-    seen: HashSet<String>,
+    root: &'a Path,
+    images: HashMap<String, String>,
     pub(super) warnings: Vec<String>,
+    pub(super) messages: Vec<String>,
     data_images: HashMap<String, bool>,
 }
 impl<'a> Work<'a> {
-    pub(super) fn new(replacements: Option<&'a HashMap<String, String>>) -> Self {
+    pub(super) fn new(root: &'a Path) -> Self {
         Self {
-            replacements,
-            assets: Vec::new(),
-            seen: HashSet::new(),
+            root,
+            images: HashMap::new(),
             warnings: Vec::new(),
+            messages: Vec::new(),
             data_images: HashMap::new(),
         }
     }
@@ -190,27 +190,17 @@ impl<'a> Work<'a> {
         } else {
             classify(url)
         };
-        if preserve(kind, context)
-            && (kind != Kind::DataImage || self.replacements.is_none() || self.data_image(url))
-        {
+        if preserve(kind, context) && (kind != Kind::DataImage || self.data_image(url)) {
             return Ok(url.into());
         }
         if kind == Kind::LocalImage {
-            if self.seen.insert(url.into()) {
-                self.assets.push(url.into());
+            if !self.images.contains_key(url) {
+                let input = crate::filesystem::read_asset(self.root, &local_path(url), url)?;
+                let converted = crate::readme_image::convert(&input, url)?;
+                self.messages.push(converted.message);
+                self.images.insert(url.into(), converted.url);
             }
-            if let Some(replacements) = self.replacements {
-                let replacement = replacements
-                    .get(url)
-                    .ok_or_else(|| format!("Missing replacement for README image: {url}"))?;
-                if !self.data_image(replacement) {
-                    return Err(format!(
-                        "Invalid or oversized replacement for README image: {url}"
-                    ));
-                }
-                return Ok(replacement.clone());
-            }
-            return Ok(url.into());
+            return Ok(self.images[url].clone());
         }
         let display: String = url.chars().take(200).collect();
         let suffix = if url.chars().count() > 200 { "..." } else { "" };

@@ -109,21 +109,14 @@ pub(crate) fn check_output(root: &Path, plugin_roots: &[PathBuf]) -> Result<(), 
 
 fn read_bounded(reader: &mut impl Read, limit: usize) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    let mut chunk = [0u8; 64 * 1024];
-    loop {
-        let count = chunk.len().min(limit + 1 - bytes.len());
-        let n = match reader.read(&mut chunk[..count]) {
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            result => result.map_err(|e| e.to_string())?,
-        };
-        if n == 0 {
-            return Ok(bytes);
-        }
-        bytes.extend_from_slice(&chunk[..n]);
-        if bytes.len() > limit {
-            return Err("source limit exceeded".into());
-        }
+    reader
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > limit {
+        return Err("source limit exceeded".into());
     }
+    Ok(bytes)
 }
 
 pub(crate) fn read_asset(root: &Path, pathname: &str, url: &str) -> Result<Vec<u8>, String> {
